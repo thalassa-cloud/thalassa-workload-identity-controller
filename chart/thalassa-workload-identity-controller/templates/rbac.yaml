@@ -1,0 +1,74 @@
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "twic.fullname" . }}
+  labels:
+    {{- include "twic.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["iam.thalassa.cloud"]
+    resources: ["workloadidentitybindings"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["iam.thalassa.cloud"]
+    resources: ["workloadidentitybindings/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["iam.thalassa.cloud"]
+    resources: ["workloadidentitybindings/finalizers"]
+    verbs: ["update"]
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs:
+      - get
+      - list
+      - watch
+      {{- if .Values.controller.enableServiceAccountAnnotations }}
+      - update
+      - patch
+      {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "twic.fullname" . }}
+  labels:
+    {{- include "twic.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "twic.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "twic.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- if .Values.controller.leaderElect }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "twic.fullname" . }}-leader-election
+  labels:
+    {{- include "twic.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "twic.fullname" . }}-leader-election
+  labels:
+    {{- include "twic.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "twic.fullname" . }}-leader-election
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "twic.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

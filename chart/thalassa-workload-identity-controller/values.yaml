@@ -1,0 +1,73 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/thalassa-cloud/thalassa-workload-identity-controller
+  pullPolicy: IfNotPresent
+  tag: ""
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: true
+  # Empty = ClusterRole for all namespaces. Non-empty = Role per listed namespace.
+  watchNamespaces: []
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+thalassa:
+  url: "https://api.thalassa.cloud"
+  organisation: ""
+  # Optional. When set, IAM policy APIs use X-Project-Identity.
+  # When empty, policyRef resolves in the organisation root scope.
+  project: ""
+  clusterIdentity: ""
+  # Thalassa SA identity for the controller itself (bootstrapped once with tcloud).
+  serviceAccountId: ""
+  trustedAudiences: []
+  # If empty, defaults to thalassa.url
+  projectedToken:
+    enabled: true
+    mountPath: /var/run/secrets/thalassa
+    path: token
+    audience: "https://api.thalassa.cloud"
+    expirationSeconds: 3600
+
+controller:
+  leaderElect: true
+  requeueMissingIDP: 30s
+  metricsAddr: ":8080"
+  probeAddr: ":8081"
+  # Legacy ServiceAccount annotation reconciliation (default: off). Prefer CRs.
+  enableServiceAccountAnnotations: false
+  # Optional allowlists (empty = allow any). Match identity, slug, or name.
+  allowedPolicies: []
+  allowedRoles: []
+
+networkPolicy:
+  enabled: true

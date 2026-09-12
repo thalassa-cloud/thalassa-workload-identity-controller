@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "twic.fullname" . }}
+  labels:
+    {{- include "twic.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "twic.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "twic.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "twic.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: manager
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --metrics-bind-address={{ .Values.controller.metricsAddr }}
+            - --health-probe-bind-address={{ .Values.controller.probeAddr }}
+            - --leader-elect={{ .Values.controller.leaderElect }}
+            - --thalassa-url={{ .Values.thalassa.url }}
+            - --organisation={{ required "thalassa.organisation is required" .Values.thalassa.organisation }}
+            {{- if .Values.thalassa.project }}
+            - --project={{ .Values.thalassa.project }}
+            {{- end }}
+            - --cluster-identity={{ required "thalassa.clusterIdentity is required" .Values.thalassa.clusterIdentity }}
+            - --thalassa-service-account-id={{ required "thalassa.serviceAccountId is required" .Values.thalassa.serviceAccountId }}
+            - --requeue-missing-idp={{ .Values.controller.requeueMissingIDP }}
+            - --enable-serviceaccount-annotations={{ .Values.controller.enableServiceAccountAnnotations }}
+            {{- if .Values.controller.allowedPolicies }}
+            - --allowed-policies={{ join "," .Values.controller.allowedPolicies }}
+            {{- end }}
+            {{- if .Values.controller.allowedRoles }}
+            - --allowed-roles={{ join "," .Values.controller.allowedRoles }}
+            {{- end }}
+            {{- if .Values.thalassa.projectedToken.enabled }}
+            - --thalassa-subject-token-file={{ .Values.thalassa.projectedToken.mountPath }}/{{ .Values.thalassa.projectedToken.path }}
+            {{- end }}
+            {{- if .Values.thalassa.trustedAudiences }}
+            - --trusted-audiences={{ join "," .Values.thalassa.trustedAudiences }}
+            {{- end }}
+            {{- if .Values.rbac.watchNamespaces }}
+            - --watch-namespaces={{ join "," .Values.rbac.watchNamespaces }}
+            {{- end }}
+          ports:
+            - name: metrics
+              containerPort: 8080
+            - name: health
+              containerPort: 8081
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            {{- if .Values.thalassa.projectedToken.enabled }}
+            - name: thalassa-token
+              mountPath: {{ .Values.thalassa.projectedToken.mountPath }}
+              readOnly: true
+            {{- end }}
+      volumes:
+        {{- if .Values.thalassa.projectedToken.enabled }}
+        - name: thalassa-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: {{ .Values.thalassa.projectedToken.path }}
+                  audience: {{ .Values.thalassa.projectedToken.audience | quote }}
+                  expirationSeconds: {{ .Values.thalassa.projectedToken.expirationSeconds }}
+        {{- end }}

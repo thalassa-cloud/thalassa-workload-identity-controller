@@ -1,0 +1,5 @@
+FROM gcr.io/distroless/static:nonroot
+EXPOSE 8080 8081
+COPY thalassa-workload-identity-controller /thalassa-workload-identity-controller
+USER nonroot:nonroot
+ENTRYPOINT ["/thalassa-workload-identity-controller"]
