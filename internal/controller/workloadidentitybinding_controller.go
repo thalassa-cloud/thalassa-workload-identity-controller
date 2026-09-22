@@ -44,7 +44,7 @@ func (r *WorkloadIdentityBindingReconciler) Reconcile(ctx context.Context, req c
 		return ctrl.Result{}, nil
 	}
 
-	br := &bindingReconciler{Client: r.Client, IAM: r.IAM, Config: r.Config, Now: r.Now}
+	br := &bindingReconciler{Client: r.Client, IAM: r.IAM, Config: r.Config}
 	desired := bindingDesired{
 		Namespace:       binding.Namespace,
 		ServiceAccount:  binding.Spec.ServiceAccountName,

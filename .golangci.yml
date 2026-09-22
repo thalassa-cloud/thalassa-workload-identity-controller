@@ -31,6 +31,9 @@ linters:
           - dupl
           - lll
         path: internal/.*
+      - linters:
+          - lll
+        path: api/.*
     paths:
       - third_party$
       - builtin$

@@ -95,7 +95,7 @@ type WorkloadIdentityBindingStatus struct {
 // +kubebuilder:printcolumn:name="Policy",type=string,JSONPath=`.status.policyID`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name="Reason",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].reason`
-// +kubebuilder:printcolumn:name="Last Transition",type=date,JSONPath=`.status.conditions[?(@.type=="Ready")].lastTransitionTime`
+// +kubebuilder:printcolumn:name="LastTransition",type=date,JSONPath=`.status.conditions[?(@.type=="Ready")].lastTransitionTime`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // WorkloadIdentityBinding binds a namespaced ServiceAccount to Thalassa WIF.
@@ -117,5 +117,5 @@ type WorkloadIdentityBindingList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&WorkloadIdentityBinding{}, &WorkloadIdentityBindingList{})
+	objectTypes = append(objectTypes, &WorkloadIdentityBinding{}, &WorkloadIdentityBindingList{})
 }

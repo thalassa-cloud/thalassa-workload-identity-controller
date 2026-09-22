@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -48,14 +47,6 @@ type bindingReconciler struct {
 	Client client.Client
 	IAM    wif.IAMClient
 	Config config.Config
-	Now    func() time.Time
-}
-
-func (r *bindingReconciler) now() time.Time {
-	if r.Now != nil {
-		return r.Now()
-	}
-	return time.Now()
 }
 
 func (r *bindingReconciler) reconcileBinding(
@@ -97,7 +88,7 @@ func (r *bindingReconciler) reconcileBinding(
 		return ctrl.Result{Requeue: true}, &bindingObserved{Phase: wif.StatusPending, Reason: "FinalizerAdded"}, nil
 	}
 
-	if err := validateDesired(desired, r.Config); err != nil {
+	if err := validateDesired(desired); err != nil {
 		return ctrl.Result{}, &bindingObserved{
 			Phase:   wif.StatusError,
 			Ready:   false,
@@ -188,7 +179,7 @@ func (r *bindingReconciler) reconcileBinding(
 	}, nil
 }
 
-func validateDesired(d bindingDesired, cfg config.Config) error {
+func validateDesired(d bindingDesired) error {
 	if strings.TrimSpace(d.Namespace) == "" || strings.TrimSpace(d.ServiceAccount) == "" {
 		return fmt.Errorf("service account namespace and name are required")
 	}
