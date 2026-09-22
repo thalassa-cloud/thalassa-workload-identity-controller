@@ -72,6 +72,14 @@ type WorkloadIdentityBindingStatus struct {
 	// +optional
 	PolicyID string `json:"policyID,omitempty"`
 
+	// OrganisationID is the Thalassa organisation used for OIDC token exchange.
+	// +optional
+	OrganisationID string `json:"organisationID,omitempty"`
+
+	// ProjectID is the Thalassa project identity when the controller runs with --project.
+	// +optional
+	ProjectID string `json:"projectID,omitempty"`
+
 	// ObservedGeneration is the generation last processed by the controller.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`

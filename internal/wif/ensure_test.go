@@ -9,6 +9,20 @@ import (
 	"github.com/thalassa-cloud/client-go/iam"
 )
 
+const (
+	testProviderID = "idp-1"
+	testIssuer     = "https://oidc.example"
+	testClusterID  = "k8s-1"
+	testRoleID     = "role-1"
+	testRoleSlug   = "reader"
+	testSAName     = "app"
+	testNamespace  = "ns"
+	testAudience   = "https://api.thalassa.cloud"
+	testPolicySlug = "obs-write"
+	testPolicyID   = "pol-1"
+	testSubject    = "system:serviceaccount:ns:app"
+)
+
 type fakeIAM struct {
 	providers []iam.FederatedIdentityProvider
 	sas       []iam.ServiceAccount
@@ -166,26 +180,30 @@ func (f *fakeIAM) DeleteIamPolicyBinding(_ context.Context, policyIdentity, bind
 	return nil
 }
 
+func testProvider() iam.FederatedIdentityProvider {
+	return iam.FederatedIdentityProvider{
+		Identity:       testProviderID,
+		ProviderIssuer: testIssuer,
+		Labels:         map[string]string{LabelKubernetesClusterID: testClusterID},
+	}
+}
+
 func TestEnsureWorkloadIdentityCreates(t *testing.T) {
 	f := &fakeIAM{
-		providers: []iam.FederatedIdentityProvider{{
-			Identity:       "idp-1",
-			ProviderIssuer: "https://oidc.example",
-			Labels:         map[string]string{LabelKubernetesClusterID: "k8s-1"},
-		}},
-		roles:    []iam.OrganisationRole{{Identity: "role-1", Name: "Reader", Slug: "reader"}},
-		bindings: map[string][]iam.OrganisationRoleBinding{},
+		providers: []iam.FederatedIdentityProvider{testProvider()},
+		roles:     []iam.OrganisationRole{{Identity: testRoleID, Name: "Reader", Slug: testRoleSlug}},
+		bindings:  map[string][]iam.OrganisationRoleBinding{},
 	}
 	res, err := EnsureWorkloadIdentity(context.Background(), f, EnsureInput{
-		Namespace:        "ns",
-		ServiceAccount:   "app",
-		RoleRef:          "reader",
+		Namespace:        testNamespace,
+		ServiceAccount:   testSAName,
+		RoleRef:          testRoleSlug,
 		Scopes:           []iam.AccessCredentialsScope{iam.AccessCredentialsScopeAPIRead},
-		TrustedAudiences: []string{"https://api.thalassa.cloud"},
-		ClusterIdentity:  "k8s-1",
+		TrustedAudiences: []string{testAudience},
+		ClusterIdentity:  testClusterID,
 	})
 	require.NoError(t, err)
-	require.Equal(t, "idp-1", res.ProviderID)
+	require.Equal(t, testProviderID, res.ProviderID)
 	require.Equal(t, "sa-new", res.ServiceAccountID)
 	require.Equal(t, "fi-new", res.FederatedIdentityID)
 	require.Equal(t, 1, f.createSACalls)
@@ -194,12 +212,12 @@ func TestEnsureWorkloadIdentityCreates(t *testing.T) {
 
 	// Idempotent second call
 	_, err = EnsureWorkloadIdentity(context.Background(), f, EnsureInput{
-		Namespace:        "ns",
-		ServiceAccount:   "app",
-		RoleRef:          "reader",
+		Namespace:        testNamespace,
+		ServiceAccount:   testSAName,
+		RoleRef:          testRoleSlug,
 		Scopes:           []iam.AccessCredentialsScope{iam.AccessCredentialsScopeAPIRead},
-		TrustedAudiences: []string{"https://api.thalassa.cloud"},
-		ClusterIdentity:  "k8s-1",
+		TrustedAudiences: []string{testAudience},
+		ClusterIdentity:  testClusterID,
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, f.createSACalls)
@@ -209,34 +227,30 @@ func TestEnsureWorkloadIdentityCreates(t *testing.T) {
 
 func TestEnsureWorkloadIdentityWithPolicy(t *testing.T) {
 	f := &fakeIAM{
-		providers: []iam.FederatedIdentityProvider{{
-			Identity:       "idp-1",
-			ProviderIssuer: "https://oidc.example",
-			Labels:         map[string]string{LabelKubernetesClusterID: "k8s-1"},
-		}},
-		policies:  []iam.IamPolicy{{Identity: "pol-1", Name: "Obs Write", Slug: "obs-write"}},
+		providers: []iam.FederatedIdentityProvider{testProvider()},
+		policies:  []iam.IamPolicy{{Identity: testPolicyID, Name: "Obs Write", Slug: testPolicySlug}},
 		pBindings: map[string][]iam.IamPolicyBinding{},
 	}
 	res, err := EnsureWorkloadIdentity(context.Background(), f, EnsureInput{
-		Namespace:        "ns",
-		ServiceAccount:   "app",
-		PolicyRef:        "obs-write",
+		Namespace:        testNamespace,
+		ServiceAccount:   testSAName,
+		PolicyRef:        testPolicySlug,
 		Scopes:           []iam.AccessCredentialsScope{iam.AccessCredentialsScopeAPIRead},
-		TrustedAudiences: []string{"https://api.thalassa.cloud"},
-		ClusterIdentity:  "k8s-1",
+		TrustedAudiences: []string{testAudience},
+		ClusterIdentity:  testClusterID,
 	})
 	require.NoError(t, err)
-	require.Equal(t, "pol-1", res.PolicyID)
+	require.Equal(t, testPolicyID, res.PolicyID)
 	require.Equal(t, 1, f.createPBCalls)
 	require.Equal(t, 0, f.createRBCalls)
 
 	_, err = EnsureWorkloadIdentity(context.Background(), f, EnsureInput{
-		Namespace:        "ns",
-		ServiceAccount:   "app",
-		PolicyRef:        "obs-write",
+		Namespace:        testNamespace,
+		ServiceAccount:   testSAName,
+		PolicyRef:        testPolicySlug,
 		Scopes:           []iam.AccessCredentialsScope{iam.AccessCredentialsScopeAPIRead},
-		TrustedAudiences: []string{"https://api.thalassa.cloud"},
-		ClusterIdentity:  "k8s-1",
+		TrustedAudiences: []string{testAudience},
+		ClusterIdentity:  testClusterID,
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, f.createPBCalls)
@@ -244,53 +258,46 @@ func TestEnsureWorkloadIdentityWithPolicy(t *testing.T) {
 
 func TestEnsurePolicyAllowlist(t *testing.T) {
 	f := &fakeIAM{
-		providers: []iam.FederatedIdentityProvider{{
-			Identity:       "idp-1",
-			ProviderIssuer: "https://oidc.example",
-			Labels:         map[string]string{LabelKubernetesClusterID: "k8s-1"},
-		}},
-		policies:  []iam.IamPolicy{{Identity: "pol-1", Name: "Obs Write", Slug: "obs-write"}},
+		providers: []iam.FederatedIdentityProvider{testProvider()},
+		policies:  []iam.IamPolicy{{Identity: testPolicyID, Name: "Obs Write", Slug: testPolicySlug}},
 		pBindings: map[string][]iam.IamPolicyBinding{},
 	}
 	_, err := EnsureWorkloadIdentity(context.Background(), f, EnsureInput{
-		Namespace:        "ns",
-		ServiceAccount:   "app",
-		PolicyRef:        "obs-write",
+		Namespace:        testNamespace,
+		ServiceAccount:   testSAName,
+		PolicyRef:        testPolicySlug,
 		AllowedPolicies:  []string{"other-policy"},
 		Scopes:           []iam.AccessCredentialsScope{iam.AccessCredentialsScopeAPIRead},
-		TrustedAudiences: []string{"https://api.thalassa.cloud"},
-		ClusterIdentity:  "k8s-1",
+		TrustedAudiences: []string{testAudience},
+		ClusterIdentity:  testClusterID,
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "allowlist")
 	require.Equal(t, 0, f.createPBCalls)
 
 	res, err := EnsureWorkloadIdentity(context.Background(), f, EnsureInput{
-		Namespace:        "ns",
-		ServiceAccount:   "app",
-		PolicyRef:        "obs-write",
-		AllowedPolicies:  []string{"pol-1"},
+		Namespace:        testNamespace,
+		ServiceAccount:   testSAName,
+		PolicyRef:        testPolicySlug,
+		AllowedPolicies:  []string{testPolicyID},
 		Scopes:           []iam.AccessCredentialsScope{iam.AccessCredentialsScopeAPIRead},
-		TrustedAudiences: []string{"https://api.thalassa.cloud"},
-		ClusterIdentity:  "k8s-1",
+		TrustedAudiences: []string{testAudience},
+		ClusterIdentity:  testClusterID,
 	})
 	require.NoError(t, err)
-	require.Equal(t, "pol-1", res.PolicyID)
+	require.Equal(t, testPolicyID, res.PolicyID)
 }
 
 func TestEnsureRequiresPolicyOrRole(t *testing.T) {
 	f := &fakeIAM{
-		providers: []iam.FederatedIdentityProvider{{
-			Identity: "idp-1", ProviderIssuer: "https://oidc.example",
-			Labels: map[string]string{LabelKubernetesClusterID: "k8s-1"},
-		}},
+		providers: []iam.FederatedIdentityProvider{testProvider()},
 	}
 	_, err := EnsureWorkloadIdentity(context.Background(), f, EnsureInput{
-		Namespace:        "ns",
-		ServiceAccount:   "app",
+		Namespace:        testNamespace,
+		ServiceAccount:   testSAName,
 		Scopes:           []iam.AccessCredentialsScope{iam.AccessCredentialsScopeAPIRead},
-		TrustedAudiences: []string{"https://api.thalassa.cloud"},
-		ClusterIdentity:  "k8s-1",
+		TrustedAudiences: []string{testAudience},
+		ClusterIdentity:  testClusterID,
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "at least one of policy or role")
@@ -305,32 +312,29 @@ func TestFindProviderNotReady(t *testing.T) {
 }
 
 func TestEnsureUpdatesFederatedIdentity(t *testing.T) {
-	key := ResourceKey("ns", "app", "system:serviceaccount:ns:app", "https://oidc.example")
-	labels := OwnershipLabels(key, "ns", "app")
+	key := ResourceKey(testNamespace, testSAName, testSubject, testIssuer)
+	labels := OwnershipLabels(key, testNamespace, testSAName)
 	f := &fakeIAM{
-		providers: []iam.FederatedIdentityProvider{{
-			Identity: "idp-1", ProviderIssuer: "https://oidc.example",
-			Labels: map[string]string{LabelKubernetesClusterID: "k8s-1"},
-		}},
-		sas: []iam.ServiceAccount{{Identity: "sa-1", Labels: labels}},
+		providers: []iam.FederatedIdentityProvider{testProvider()},
+		sas:       []iam.ServiceAccount{{Identity: "sa-1", Labels: labels}},
 		fis: []iam.FederatedIdentity{{
 			Identity: "fi-1", Name: "old", Description: "old", Labels: labels,
-			ProviderSubject:   "system:serviceaccount:ns:app",
-			Annotations:       map[string]string{AnnotationProviderSubject: "system:serviceaccount:ns:app"},
+			ProviderSubject:   testSubject,
+			Annotations:       map[string]string{AnnotationProviderSubject: testSubject},
 			AllowedScopes:     []iam.AccessCredentialsScope{iam.AccessCredentialsScopeAPIRead},
-			TrustedAudiences:  []string{"https://api.thalassa.cloud"},
+			TrustedAudiences:  []string{testAudience},
 			AudienceMatchMode: iam.AudienceMatchModeAny,
 		}},
-		roles:    []iam.OrganisationRole{{Identity: "role-1", Slug: "reader"}},
-		bindings: map[string][]iam.OrganisationRoleBinding{"role-1": {{Identity: "rb-1", ServiceAccount: &iam.ServiceAccount{Identity: "sa-1"}, Labels: labels}}},
+		roles:    []iam.OrganisationRole{{Identity: testRoleID, Slug: testRoleSlug}},
+		bindings: map[string][]iam.OrganisationRoleBinding{testRoleID: {{Identity: "rb-1", ServiceAccount: &iam.ServiceAccount{Identity: "sa-1"}, Labels: labels}}},
 	}
 	_, err := EnsureWorkloadIdentity(context.Background(), f, EnsureInput{
-		Namespace:        "ns",
-		ServiceAccount:   "app",
-		RoleRef:          "reader",
+		Namespace:        testNamespace,
+		ServiceAccount:   testSAName,
+		RoleRef:          testRoleSlug,
 		Scopes:           []iam.AccessCredentialsScope{iam.AccessCredentialsScopeAPIRead, iam.AccessCredentialsScopeAPIWrite},
-		TrustedAudiences: []string{"https://api.thalassa.cloud"},
-		ClusterIdentity:  "k8s-1",
+		TrustedAudiences: []string{testAudience},
+		ClusterIdentity:  testClusterID,
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, f.updateFICalls)

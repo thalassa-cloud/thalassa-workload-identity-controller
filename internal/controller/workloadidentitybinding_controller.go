@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -29,7 +30,8 @@ type WorkloadIdentityBindingReconciler struct {
 // +kubebuilder:rbac:groups=iam.thalassa.cloud,resources=workloadidentitybindings,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=iam.thalassa.cloud,resources=workloadidentitybindings/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=iam.thalassa.cloud,resources=workloadidentitybindings/finalizers,verbs=update
-// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 
 func (r *WorkloadIdentityBindingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var binding iamv1beta1.WorkloadIdentityBinding
@@ -44,7 +46,7 @@ func (r *WorkloadIdentityBindingReconciler) Reconcile(ctx context.Context, req c
 		return ctrl.Result{}, nil
 	}
 
-	br := &bindingReconciler{Client: r.Client, IAM: r.IAM, Config: r.Config}
+	br := &bindingReconciler{Client: r.Client, Scheme: r.Scheme, IAM: r.IAM, Config: r.Config}
 	desired := bindingDesired{
 		Namespace:       binding.Namespace,
 		ServiceAccount:  binding.Spec.ServiceAccountName,
@@ -78,8 +80,9 @@ func (r *WorkloadIdentityBindingReconciler) patchStatus(ctx context.Context, bin
 		latest.Status.ServiceAccountID = obs.ServiceAccountID
 		latest.Status.FederatedIdentityID = obs.FederatedIdentityID
 		latest.Status.ProviderID = obs.ProviderID
-		// Always record the resolved policy identity (empty when role-only).
 		latest.Status.PolicyID = obs.PolicyID
+		latest.Status.OrganisationID = obs.OrganisationID
+		latest.Status.ProjectID = obs.ProjectID
 	}
 	latest.Status.Conditions = setReadyCondition(latest.Status.Conditions, obs, latest.Generation, now)
 	return r.Status().Update(ctx, &latest)
@@ -106,6 +109,7 @@ func (r *WorkloadIdentityBindingReconciler) SetupWithManager(mgr ctrl.Manager) e
 	})
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&iamv1beta1.WorkloadIdentityBinding{}).
+		Owns(&corev1.ConfigMap{}).
 		WithEventFilter(pred).
 		Complete(r)
 }

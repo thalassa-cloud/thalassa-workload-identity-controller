@@ -14,10 +14,18 @@ const (
 	AnnotationFederatedIdentityID = "thalassa.cloud/wif.federated-identity-id"
 	AnnotationProviderID          = "thalassa.cloud/wif.provider-id"
 	AnnotationPolicyID            = "thalassa.cloud/wif.policy-id"
+	AnnotationOrganisationID      = "thalassa.cloud/wif.organisation-id"
+	AnnotationProjectID           = "thalassa.cloud/wif.project-id"
 	AnnotationLastError           = "thalassa.cloud/wif.last-error"
 	AnnotationLastReconcile       = "thalassa.cloud/wif.last-reconcile"
 	AnnotationProviderSubject     = "thalassa.cloud/wif.provider-subject"
 	AnnotationRepository          = "thalassa.cloud/wif.repository"
+)
+
+const (
+	ConfigMapKeyOrganisationID   = "organisation-id"
+	ConfigMapKeyServiceAccountID = "service-account-id"
+	ConfigMapKeyProjectID        = "project-id"
 )
 
 // FinalizerName is added to opted-in ServiceAccounts (annotation path) and bindings.

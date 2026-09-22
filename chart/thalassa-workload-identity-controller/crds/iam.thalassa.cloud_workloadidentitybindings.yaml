@@ -184,6 +184,10 @@ spec:
                   the controller.
                 format: int64
                 type: integer
+              organisationID:
+                description: OrganisationID is the Thalassa organisation used for
+                  OIDC token exchange.
+                type: string
               phase:
                 description: Phase is Pending, Ready, or Error.
                 type: string
@@ -191,6 +195,10 @@ spec:
                 description: |-
                   PolicyID is the resolved Thalassa IAM policy identity (never slug/name).
                   Prefer this value over spec.policyRef for lookups and cleanup.
+                type: string
+              projectID:
+                description: ProjectID is the Thalassa project identity when the controller
+                  runs with --project.
                 type: string
               providerID:
                 description: ProviderID is the cluster OIDC identity provider identity.

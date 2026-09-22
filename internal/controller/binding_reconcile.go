@@ -9,6 +9,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -38,6 +39,8 @@ type bindingObserved struct {
 	FederatedIdentityID string
 	ProviderID          string
 	PolicyID            string
+	OrganisationID      string
+	ProjectID           string
 	Ready               bool
 	Message             string
 	Reason              string
@@ -45,6 +48,7 @@ type bindingObserved struct {
 
 type bindingReconciler struct {
 	Client client.Client
+	Scheme *runtime.Scheme
 	IAM    wif.IAMClient
 	Config config.Config
 }
@@ -60,6 +64,16 @@ func (r *bindingReconciler) reconcileBinding(
 	if !obj.GetDeletionTimestamp().IsZero() {
 		if !hasFinalizer {
 			return ctrl.Result{}, nil, nil
+		}
+		if err := r.clearServiceAccountIdentityAnnotations(ctx, desired.Namespace, desired.ServiceAccount); err != nil {
+			logger.Error(err, "failed to clear ServiceAccount WIF identity annotations")
+			obs := &bindingObserved{
+				Phase:   wif.StatusError,
+				Ready:   false,
+				Reason:  "CleanupFailed",
+				Message: err.Error(),
+			}
+			return ctrl.Result{}, obs, err
 		}
 		if desired.DeleteResources {
 			if err := r.deleteCloudResources(ctx, desired); err != nil {
@@ -162,6 +176,27 @@ func (r *bindingReconciler) reconcileBinding(
 		}, err
 	}
 
+	orgID := strings.TrimSpace(r.Config.OrganisationID)
+	projectID := strings.TrimSpace(r.Config.ProjectIdentity)
+	if err := r.syncIdentityConfigMap(ctx, obj, desired, result.ServiceAccountID, orgID, projectID); err != nil {
+		logger.Error(err, "failed to sync WIF identity ConfigMap")
+		return ctrl.Result{}, &bindingObserved{
+			Phase:   wif.StatusError,
+			Ready:   false,
+			Reason:  "IdentityConfigMapFailed",
+			Message: err.Error(),
+		}, err
+	}
+	if err := r.annotateServiceAccountIdentity(ctx, &sa, result.ServiceAccountID, orgID, projectID); err != nil {
+		logger.Error(err, "failed to annotate ServiceAccount with WIF identity")
+		return ctrl.Result{}, &bindingObserved{
+			Phase:   wif.StatusError,
+			Ready:   false,
+			Reason:  "ServiceAccountAnnotateFailed",
+			Message: err.Error(),
+		}, err
+	}
+
 	logger.Info("workload identity ready",
 		"thalassaServiceAccount", result.ServiceAccountID,
 		"federatedIdentity", result.FederatedIdentityID,
@@ -176,7 +211,98 @@ func (r *bindingReconciler) reconcileBinding(
 		FederatedIdentityID: result.FederatedIdentityID,
 		ProviderID:          result.ProviderID,
 		PolicyID:            result.PolicyID,
+		OrganisationID:      orgID,
+		ProjectID:           projectID,
 	}, nil
+}
+
+func (r *bindingReconciler) syncIdentityConfigMap(
+	ctx context.Context,
+	owner client.Object,
+	desired bindingDesired,
+	serviceAccountID, organisationID, projectID string,
+) error {
+	data := IdentityConfigMapData(organisationID, serviceAccountID, projectID)
+	if err := ValidateIdentityConfigMapData(data); err != nil {
+		return err
+	}
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      IdentityConfigMapName(desired.ServiceAccount),
+			Namespace: desired.Namespace,
+		},
+	}
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, cm, func() error {
+		if r.Scheme != nil {
+			if err := controllerutil.SetControllerReference(owner, cm, r.Scheme); err != nil {
+				return err
+			}
+		}
+		if cm.Labels == nil {
+			cm.Labels = map[string]string{}
+		}
+		cm.Labels[wif.LabelManagedBy] = wif.ValueManagedBy
+		cm.Labels[wif.LabelK8sNamespace] = desired.Namespace
+		cm.Labels[wif.LabelK8sServiceAccount] = desired.ServiceAccount
+		cm.Data = data
+		return nil
+	})
+	return err
+}
+
+func (r *bindingReconciler) annotateServiceAccountIdentity(
+	ctx context.Context,
+	sa *corev1.ServiceAccount,
+	serviceAccountID, organisationID, projectID string,
+) error {
+	var latest corev1.ServiceAccount
+	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: sa.Namespace, Name: sa.Name}, &latest); err != nil {
+		return err
+	}
+	if latest.Annotations == nil {
+		latest.Annotations = map[string]string{}
+	}
+	latest.Annotations[wif.AnnotationServiceAccountID] = serviceAccountID
+	latest.Annotations[wif.AnnotationOrganisationID] = organisationID
+	if projectID != "" {
+		latest.Annotations[wif.AnnotationProjectID] = projectID
+	} else {
+		delete(latest.Annotations, wif.AnnotationProjectID)
+	}
+	return r.Client.Update(ctx, &latest)
+}
+
+func (r *bindingReconciler) clearServiceAccountIdentityAnnotations(ctx context.Context, namespace, name string) error {
+	var sa corev1.ServiceAccount
+	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &sa); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	if sa.Annotations == nil {
+		return nil
+	}
+	keys := []string{
+		wif.AnnotationServiceAccountID,
+		wif.AnnotationOrganisationID,
+		wif.AnnotationProjectID,
+		wif.AnnotationFederatedIdentityID,
+		wif.AnnotationProviderID,
+		wif.AnnotationPolicyID,
+	}
+	changed := false
+	for _, k := range keys {
+		if _, ok := sa.Annotations[k]; ok {
+			delete(sa.Annotations, k)
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return r.Client.Update(ctx, &sa)
 }
 
 func validateDesired(d bindingDesired) error {

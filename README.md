@@ -31,7 +31,7 @@ Optional controller allowlists (`--allowed-policies` / `--allowed-roles`, Helm `
 
 CRD CEL rejects missing `policyRef`/`roleRef` and wildcards at apply time.
 
-Status: `phase`, `serviceAccountID`, `federatedIdentityID`, `providerID`, `policyID`, `conditions` (including `Ready` reason / last transition).
+Status: `phase`, `serviceAccountID`, `organisationID`, `projectID`, `federatedIdentityID`, `providerID`, `policyID`, `conditions`.
 
 ```bash
 kubectl get wib -n monitoring
@@ -39,6 +39,18 @@ kubectl get wib -n monitoring
 ```
 
 JWT subject: `system:serviceaccount:<namespace>:<name>`.
+
+### Pod identity files (token exchange)
+
+OIDC token exchange needs `organisation_id` and `service_account_id` in addition to the projected Kubernetes JWT. When Ready, the controller syncs ConfigMap `wif-<serviceAccountName>` in the binding namespace:
+
+| Key | File (example mount) | Required for exchange |
+| --- | --- | --- |
+| `organisation-id` | `/var/run/secrets/thalassa/organisation-id` | yes |
+| `service-account-id` | `/var/run/secrets/thalassa/service-account-id` | yes |
+| `project-id` | `/var/run/secrets/thalassa/project-id` | no (API project scope; only when `--project` is set) |
+
+The same IDs are written as annotations on the target ServiceAccount. Mount the ConfigMap next to the projected token (see [examples/serviceaccount.yaml](examples/serviceaccount.yaml)).
 
 ### Kubernetes RBAC (who may bind)
 
@@ -101,7 +113,7 @@ Optional hardening:
 
 ### 3. Create a binding
 
-See [examples/serviceaccount.yaml](examples/serviceaccount.yaml). After `status.phase=Ready`, mount a projected token with audience `https://api.thalassa.cloud`.
+See [examples/serviceaccount.yaml](examples/serviceaccount.yaml). After `status.phase=Ready`, mount the projected JWT (audience `https://api.thalassa.cloud`) and ConfigMap `wif-<sa-name>` for organisation/service-account IDs used in token exchange.
 
 ## Development
 

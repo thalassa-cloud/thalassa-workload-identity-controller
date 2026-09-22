@@ -6,6 +6,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const testPolicySlug = "obs-write"
+
 func TestRefAllowed(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -15,10 +17,10 @@ func TestRefAllowed(t *testing.T) {
 		want      bool
 	}{
 		{name: "empty allowlist allows all", ref: "anything", want: true},
-		{name: "match ref", ref: "obs-write", allowlist: []string{"obs-write"}, want: true},
-		{name: "match resolved identity", ref: "obs-write", allowlist: []string{"pol-1"}, resolved: []string{"pol-1"}, want: true},
-		{name: "case insensitive", ref: "Obs-Write", allowlist: []string{"obs-write"}, want: true},
-		{name: "denied", ref: "iam:FullAccess", allowlist: []string{"obs-write"}, want: false},
+		{name: "match ref", ref: testPolicySlug, allowlist: []string{testPolicySlug}, want: true},
+		{name: "match resolved identity", ref: testPolicySlug, allowlist: []string{"pol-1"}, resolved: []string{"pol-1"}, want: true},
+		{name: "case insensitive", ref: "Obs-Write", allowlist: []string{testPolicySlug}, want: true},
+		{name: "denied", ref: "iam:FullAccess", allowlist: []string{testPolicySlug}, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
