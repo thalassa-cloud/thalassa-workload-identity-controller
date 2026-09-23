@@ -12,7 +12,7 @@ Provisions Thalassa Cloud IAM (service account, federated identity, policy bindi
 | --- | --- |
 | Kubernetes cluster with OIDC IdP registered in Thalassa | Same cluster identity you use with `tcloud` |
 | `tcloud` CLI | Bootstrap the controller’s own WIF once |
-| Helm 3 | Chart under `chart/thalassa-workload-identity-controller` |
+| Helm 3 | Charts under `chart/` (CRDs + controller) |
 | cert-manager (optional) | Only if you enable the pod mutator webhook with default TLS |
 
 Collect these IDs before install:
@@ -28,7 +28,7 @@ PROJECT_ID=...       # optional; empty = organisation-root IAM for policyRef
 ### 1. Bootstrap the controller service account (once)
 
 ```bash
-tcloud iam workload-identity-federation bootstrap kubernetes \
+tcloud iam workload-identity-federation bootstrap kubectl \
   --cluster "$CLUSTER_ID" \
   --namespace thalassa-system \
   --service-account thalassa-workload-identity-controller \
@@ -38,9 +38,15 @@ tcloud iam workload-identity-federation bootstrap kubernetes \
 
 Save the printed Thalassa service account ID as `CONTROLLER_THALASSA_SA_ID`.
 
-### 2. Install the chart
+### 2. Install CRDs, then the controller
+
+Install the CRDs chart first (same pattern as `thalassa-dbaas-manager-crds`). The release workflow publishes both charts under `oci://ghcr.io/thalassa-cloud/charts/`.
 
 ```bash
+helm upgrade --install thalassa-workload-identity-controller-crds \
+  ./chart/thalassa-workload-identity-controller-crds \
+  --namespace thalassa-system --create-namespace
+
 helm upgrade --install thalassa-workload-identity-controller \
   ./chart/thalassa-workload-identity-controller \
   --namespace thalassa-system --create-namespace \
@@ -208,7 +214,7 @@ kubectl get mutatingwebhookconfiguration | grep wif
 ## Development
 
 ```bash
-make generate   # deepcopy + CRDs
+make generate   # deepcopy + CRDs → chart/...-crds/templates
 make test
 make lint
 make build

@@ -1,6 +1,8 @@
 apiVersion: v2
 name: thalassa-workload-identity-controller
-description: Reconciles Kubernetes ServiceAccount annotations into Thalassa Cloud WIF (service accounts + federated identities).
+description: Reconciles WorkloadIdentityBinding resources into Thalassa Cloud WIF (service accounts + federated identities).
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
+sources:
+  - 'https://github.com/thalassa-cloud/thalassa-workload-identity-controller'

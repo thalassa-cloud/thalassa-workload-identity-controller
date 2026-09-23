@@ -18,9 +18,9 @@ help: ## Display this help.
 ##@ Development
 
 .PHONY: generate
-generate: ## Generate deepcopy methods and CRDs.
+generate: ## Generate deepcopy methods and CRDs into the CRDs Helm chart.
 	go run sigs.k8s.io/controller-tools/cmd/controller-gen@v0.19.0 object paths=./api/...
-	go run sigs.k8s.io/controller-tools/cmd/controller-gen@v0.19.0 crd:crdVersions=v1 paths=./api/... output:crd:dir=./chart/thalassa-workload-identity-controller/crds
+	go run sigs.k8s.io/controller-tools/cmd/controller-gen@v0.19.0 crd:crdVersions=v1 paths=./api/... output:crd:dir=./chart/thalassa-workload-identity-controller-crds/templates
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.

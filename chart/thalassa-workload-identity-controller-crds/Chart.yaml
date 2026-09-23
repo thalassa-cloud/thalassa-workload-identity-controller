@@ -1,0 +1,8 @@
+apiVersion: v2
+name: thalassa-workload-identity-controller-crds
+description: Helm chart for deploying the Thalassa Workload Identity Controller CRDs
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+sources:
+  - 'https://github.com/thalassa-cloud/thalassa-workload-identity-controller'
