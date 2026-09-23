@@ -1,10 +1,12 @@
 {{- if .Values.rbac.create }}
+{{- if .Values.controller.enabled }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "twic.fullname" . }}
+  name: {{ include "twic.fullname" . }}-controller
   labels:
     {{- include "twic.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
 rules:
   - apiGroups: ["iam.thalassa.cloud"]
     resources: ["workloadidentitybindings"]
@@ -25,16 +27,17 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "twic.fullname" . }}
+  name: {{ include "twic.fullname" . }}-controller
   labels:
     {{- include "twic.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ include "twic.fullname" . }}
+  name: {{ include "twic.fullname" . }}-controller
 subjects:
   - kind: ServiceAccount
-    name: {{ include "twic.serviceAccountName" . }}
+    name: {{ include "twic.controllerServiceAccountName" . }}
     namespace: {{ .Release.Namespace }}
 {{- if .Values.controller.leaderElect }}
 ---
@@ -44,6 +47,7 @@ metadata:
   name: {{ include "twic.fullname" . }}-leader-election
   labels:
     {{- include "twic.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
 rules:
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
@@ -58,13 +62,45 @@ metadata:
   name: {{ include "twic.fullname" . }}-leader-election
   labels:
     {{- include "twic.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: {{ include "twic.fullname" . }}-leader-election
 subjects:
   - kind: ServiceAccount
-    name: {{ include "twic.serviceAccountName" . }}
+    name: {{ include "twic.controllerServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}
+{{- if .Values.webhook.enabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "twic.fullname" . }}-webhook
+  labels:
+    {{- include "twic.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webhook
+rules:
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "twic.fullname" . }}-webhook
+  labels:
+    {{- include "twic.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webhook
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "twic.fullname" . }}-webhook
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "twic.webhookServiceAccountName" . }}
     namespace: {{ .Release.Namespace }}
 {{- end }}
 {{- end }}

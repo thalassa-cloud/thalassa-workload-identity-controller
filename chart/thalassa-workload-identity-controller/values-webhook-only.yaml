@@ -1,0 +1,11 @@
+# In-cluster webhook only (managed control-plane runs the controller separately).
+controller:
+  enabled: false
+
+webhook:
+  enabled: true
+  replicaCount: 2
+  minAvailable: 1
+  failurePolicy: Fail
+  certManager:
+    enabled: true

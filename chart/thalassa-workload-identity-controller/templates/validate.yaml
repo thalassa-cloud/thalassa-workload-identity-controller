@@ -1,0 +1,3 @@
+{{- if and (not .Values.controller.enabled) (not .Values.webhook.enabled) }}
+{{- fail "at least one of controller.enabled or webhook.enabled must be true" }}
+{{- end }}

@@ -1,7 +1,3 @@
-replicaCount: 1
-# Used by PodDisruptionBudget when replicaCount > 1.
-minAvailable: 1
-
 image:
   repository: ghcr.io/thalassa-cloud/thalassa-workload-identity-controller
   pullPolicy: IfNotPresent
@@ -9,17 +5,6 @@ image:
 
 nameOverride: ""
 fullnameOverride: ""
-
-serviceAccount:
-  create: true
-  name: ""
-  annotations: {}
-
-rbac:
-  create: true
-  # Empty = ClusterRole for all namespaces. Non-empty = Role per listed namespace
-  # (watch filter only today; ClusterRole remains until namespaced Roles land).
-  watchNamespaces: []
 
 podSecurityContext:
   runAsNonRoot: true
@@ -47,13 +32,10 @@ thalassa:
   url: "https://api.thalassa.cloud"
   organisation: ""
   # Optional. When set, IAM policy APIs use X-Project-Identity.
-  # When empty, policyRef resolves in the organisation root scope.
   project: ""
   clusterIdentity: ""
-  # Thalassa SA identity for the controller itself (bootstrapped once with tcloud).
   serviceAccountId: ""
   trustedAudiences: []
-  # If empty, defaults to thalassa.url
   projectedToken:
     enabled: true
     mountPath: /var/run/secrets/thalassa
@@ -61,27 +43,49 @@ thalassa:
     audience: "https://api.thalassa.cloud"
     expirationSeconds: 3600
 
+# Reconciler (control plane or in-cluster). Requires Thalassa credentials.
 controller:
-  # Required when replicaCount > 1.
+  enabled: true
+  replicaCount: 1
   leaderElect: true
   requeueMissingIDP: 30s
   probeAddr: ":8081"
-  # Legacy ServiceAccount annotation reconciliation (default: off). Prefer CRs.
   enableServiceAccountAnnotations: false
-  # Sync ConfigMap wif-<sa> for all Ready bindings (default: off).
-  # Prefer per-binding identityConfigMap: true, or the pod mutator webhook.
   enableIdentityConfigMap: false
-  # Optional allowlists (empty = allow any). Match identity, slug, or name.
   allowedPolicies: []
   allowedRoles: []
+  # Empty = all namespaces (watch filter only).
+  watchNamespaces: []
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+  resources: {}
+
+# Pod mutator (must run in-cluster for admission). No Thalassa API access required.
+webhook:
+  enabled: false
+  replicaCount: 1
+  minAvailable: 1
+  port: 9443
+  failurePolicy: Ignore
+  audience: "https://api.thalassa.cloud"
+  probeAddr: ":8081"
+  certManager:
+    enabled: true
+  tls:
+    secretName: ""
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+  resources: {}
 
 metrics:
   enabled: true
   bindAddress: ":8443"
-  # Serve metrics over HTTPS with Kubernetes authn/authz.
   secure: true
   servicePort: 8443
-  # Grant /metrics get to this ServiceAccount (e.g. Prometheus).
   prometheusServiceAccount:
     name: ""
     namespace: ""
@@ -92,18 +96,8 @@ metrics:
 
 enableServiceMonitor: false
 
-# Optional mutating webhook: injects THALASSA_* env + projected token for pods
-# labeled thalassa.cloud/wif.use=true when the SA has Ready WIF annotations.
-# For HA: replicaCount >= 2, leaderElect true, failurePolicy Fail (see values-webhook-ha.yaml).
-webhook:
-  enabled: false
-  port: 9443
-  failurePolicy: Ignore
-  certManager:
-    enabled: true
-  tls:
-    # Used when certManager.enabled=false. Must contain tls.crt and tls.key.
-    secretName: ""
+rbac:
+  create: true
 
 networkPolicy:
   enabled: true

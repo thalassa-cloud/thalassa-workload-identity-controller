@@ -1,14 +1,16 @@
 {{- if .Values.networkPolicy.enabled }}
+{{- if .Values.controller.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "twic.fullname" . }}
+  name: {{ include "twic.fullname" . }}-controller
   labels:
     {{- include "twic.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
 spec:
   podSelector:
     matchLabels:
-      {{- include "twic.selectorLabels" . | nindent 6 }}
+      {{- include "twic.controllerSelectorLabels" . | nindent 6 }}
   policyTypes:
     - Ingress
     - Egress
@@ -20,9 +22,41 @@ spec:
         - protocol: TCP
           port: {{ .Values.metrics.servicePort }}
         {{- end }}
-        {{- if .Values.webhook.enabled }}
+  egress:
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - ports:
+        - protocol: TCP
+          port: 443
+{{- end }}
+{{- if .Values.webhook.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "twic.fullname" . }}-webhook
+  labels:
+    {{- include "twic.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webhook
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "twic.webhookSelectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8081
         - protocol: TCP
           port: {{ .Values.webhook.port }}
+        {{- if .Values.metrics.enabled }}
+        - protocol: TCP
+          port: {{ .Values.metrics.servicePort }}
         {{- end }}
   egress:
     - ports:
@@ -33,4 +67,5 @@ spec:
     - ports:
         - protocol: TCP
           port: 443
+{{- end }}
 {{- end }}

@@ -27,11 +27,29 @@ app.kubernetes.io/name: {{ include "twic.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
-{{- define "twic.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create }}
-{{- default (include "twic.fullname" .) .Values.serviceAccount.name }}
+{{- define "twic.controllerSelectorLabels" -}}
+{{ include "twic.selectorLabels" . }}
+app.kubernetes.io/component: controller
+{{- end }}
+
+{{- define "twic.webhookSelectorLabels" -}}
+{{ include "twic.selectorLabels" . }}
+app.kubernetes.io/component: webhook
+{{- end }}
+
+{{- define "twic.controllerServiceAccountName" -}}
+{{- if .Values.controller.serviceAccount.create }}
+{{- default (include "twic.fullname" .) .Values.controller.serviceAccount.name }}
 {{- else }}
-{{- default "default" .Values.serviceAccount.name }}
+{{- default "default" .Values.controller.serviceAccount.name }}
+{{- end }}
+{{- end }}
+
+{{- define "twic.webhookServiceAccountName" -}}
+{{- if .Values.webhook.serviceAccount.create }}
+{{- default (printf "%s-webhook" (include "twic.fullname" .)) .Values.webhook.serviceAccount.name }}
+{{- else }}
+{{- default "default" .Values.webhook.serviceAccount.name }}
 {{- end }}
 {{- end }}
 

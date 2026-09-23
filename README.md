@@ -23,9 +23,22 @@ CLUSTER_ID=...       # Thalassa Kubernetes cluster identity
 PROJECT_ID=...       # optional; empty = organisation-root IAM for policyRef
 ```
 
+## Deployment topologies
+
+| Topology | Where the reconciler runs | Where the webhook runs |
+| --- | --- | --- |
+| **Thalassa-managed Kubernetes** | Control plane (Thalassa-operated; customers do not install it) | In-cluster (`values-webhook-only.yaml`) |
+| **Self-managed** | In-cluster | In-cluster (`values-incluster.yaml`) |
+
+Default chart values enable **controller only** (`controller.enabled=true`, `webhook.enabled=false`). Admission must call an in-cluster Service, so the mutator is always deployed in the workload cluster when used.
+
+Same container image; Helm renders separate Deployments with distinct ServiceAccounts and RBAC.
+
 ## Install
 
 ### 1. Bootstrap the controller service account (once)
+
+Only needed when you run the reconciler (self-managed / controller-only). Skip for webhook-only on managed clusters.
 
 ```bash
 tcloud iam workload-identity-federation bootstrap kubectl \
@@ -38,9 +51,11 @@ tcloud iam workload-identity-federation bootstrap kubectl \
 
 Save the printed Thalassa service account ID as `CONTROLLER_THALASSA_SA_ID`.
 
-### 2. Install CRDs, then the controller
+### 2. Install CRDs, then the chart
 
 Install the CRDs chart first (same pattern as `thalassa-dbaas-manager-crds`). The release workflow publishes both charts under `oci://ghcr.io/thalassa-cloud/charts/`.
+
+**Controller only** (default):
 
 ```bash
 helm upgrade --install thalassa-workload-identity-controller-crds \
@@ -56,27 +71,43 @@ helm upgrade --install thalassa-workload-identity-controller \
   --set thalassa.project="$PROJECT_ID"   # omit or empty for org-root policies
 ```
 
-| Helm value | Required | Purpose |
-| --- | --- | --- |
-| `thalassa.organisation` | yes | Organisation for API calls / token exchange |
-| `thalassa.clusterIdentity` | yes | Lookup cluster OIDC IdP |
-| `thalassa.serviceAccountId` | yes | Controller’s Thalassa SA (from bootstrap) |
-| `thalassa.project` | no | Scope for `policyRef` (`X-Project-Identity`); empty = org root |
-| `webhook.enabled` | no | Inject env + projected token into labeled pods (needs cert-manager by default) |
-| `webhook.failurePolicy` | no | Default `Ignore`; use `Fail` with HA (`values-webhook-ha.yaml`) |
-| `metrics.secure` | no | Default `true` (HTTPS + authn/authz on `:8443`) |
-| `enableServiceMonitor` | no | Prometheus Operator ServiceMonitor |
-| `controller.enableIdentityConfigMap` | no | Sync `wif-<sa>` ConfigMap for **all** Ready bindings |
-| `controller.allowedPolicies` / `allowedRoles` | no | Allowlists (empty = allow any) |
-| `rbac.watchNamespaces` | no | Limit watch scope; empty = all namespaces |
-
-Enable the pod webhook (single replica, best-effort injection):
+**Self-managed (controller + webhook):**
 
 ```bash
---set webhook.enabled=true
+helm upgrade --install thalassa-workload-identity-controller \
+  ./chart/thalassa-workload-identity-controller \
+  --namespace thalassa-system --create-namespace \
+  -f chart/thalassa-workload-identity-controller/values-incluster.yaml \
+  --set thalassa.organisation="$ORG_ID" \
+  --set thalassa.clusterIdentity="$CLUSTER_ID" \
+  --set thalassa.serviceAccountId="$CONTROLLER_THALASSA_SA_ID"
 ```
 
-HA webhook (2 replicas, PDB, `failurePolicy: Fail`):
+**Webhook only** (managed Kubernetes; CRDs if not preinstalled):
+
+```bash
+helm upgrade --install thalassa-workload-identity-webhook \
+  ./chart/thalassa-workload-identity-controller \
+  --namespace thalassa-system --create-namespace \
+  -f chart/thalassa-workload-identity-controller/values-webhook-only.yaml
+```
+
+| Helm value | Required | Purpose |
+| --- | --- | --- |
+| `thalassa.organisation` | when controller enabled | Organisation for API calls / token exchange |
+| `thalassa.clusterIdentity` | when controller enabled | Lookup cluster OIDC IdP |
+| `thalassa.serviceAccountId` | when controller enabled | Controller’s Thalassa SA (from bootstrap) |
+| `thalassa.project` | no | Scope for `policyRef` (`X-Project-Identity`); empty = org root |
+| `controller.enabled` | no | Default `true`; reconciler Deployment |
+| `webhook.enabled` | no | Default `false`; mutator Deployment + MWC (needs cert-manager by default) |
+| `webhook.failurePolicy` | no | Default `Ignore`; use `Fail` with HA |
+| `metrics.secure` | no | Default `true` (HTTPS + authn/authz on `:8443`) |
+| `enableServiceMonitor` | no | Prometheus Operator ServiceMonitor(s) |
+| `controller.enableIdentityConfigMap` | no | Sync `wif-<sa>` ConfigMap for **all** Ready bindings |
+| `controller.allowedPolicies` / `allowedRoles` | no | Allowlists (empty = allow any) |
+| `controller.watchNamespaces` | no | Limit watch scope; empty = all namespaces |
+
+HA webhook overlay (2 replicas, PDB, `failurePolicy: Fail`):
 
 ```bash
 -f chart/thalassa-workload-identity-controller/values-webhook-ha.yaml
@@ -91,11 +122,15 @@ Without cert-manager, provide a TLS secret (`tls.crt` / `tls.key`) and set:
 
 Flux examples: [`deploy/flux/`](deploy/flux/README.md). Chart details: [`chart/thalassa-workload-identity-controller/README.md`](chart/thalassa-workload-identity-controller/README.md).
 
-### 3. Verify the controller
+### 3. Verify
 
 ```bash
-kubectl -n thalassa-system rollout status deploy/thalassa-workload-identity-controller
-kubectl -n thalassa-system logs deploy/thalassa-workload-identity-controller -c manager -f
+# Controller Deployment (when enabled)
+kubectl -n thalassa-system rollout status deploy/thalassa-workload-identity-controller-controller
+kubectl -n thalassa-system logs deploy/thalassa-workload-identity-controller-controller -c manager -f
+
+# Webhook Deployment (when enabled)
+kubectl -n thalassa-system rollout status deploy/thalassa-workload-identity-controller-webhook
 ```
 
 ## Day-2: bind a workload
@@ -151,7 +186,7 @@ Pick one consumption path:
 
 ### A. Pod mutator webhook (recommended)
 
-1. Helm: `webhook.enabled=true`
+1. Helm: enable webhook (`values-incluster.yaml`, `values-webhook-only.yaml`, or `--set webhook.enabled=true`)
 2. Label the pod: `thalassa.cloud/wif.use: "true"` (label, not annotation — required for webhook `objectSelector`)
 3. Webhook injects env + volume when the SA annotations are present:
 

@@ -27,6 +27,8 @@ import (
 	"github.com/thalassa-cloud/thalassa-workload-identity-controller/internal/controller"
 	ithalassa "github.com/thalassa-cloud/thalassa-workload-identity-controller/internal/thalassa"
 	"github.com/thalassa-cloud/thalassa-workload-identity-controller/internal/webhook/podmutator"
+
+	gothalassa "github.com/thalassa-cloud/client-go/thalassa"
 )
 
 var scheme = runtime.NewScheme()
@@ -60,9 +62,11 @@ func main() {
 		requeueMissingIDP               time.Duration
 		enableServiceAccountAnnotations bool
 		enableIdentityConfigMap         bool
+		enableControllers               bool
 		enablePodMutator                bool
 		webhookCertDir                  string
 		webhookPort                     int
+		webhookAudience                 string
 		allowedPoliciesRaw              string
 		allowedRolesRaw                 string
 	)
@@ -74,7 +78,7 @@ func main() {
 	flag.StringVar(&probeAddr, "health-probe-bind-address", config.DefaultProbeAddr,
 		"The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", true,
-		"Enable leader election for controller manager.")
+		"Enable leader election for controller manager (ignored when controllers are disabled).")
 	flag.StringVar(&thalassaURL, "thalassa-url", config.DefaultThalassaURL,
 		"Thalassa Cloud API base URL")
 	flag.StringVar(&organisation, "organisation", "",
@@ -97,12 +101,16 @@ func main() {
 		"Enable legacy ServiceAccount annotation reconciliation (default: disabled)")
 	flag.BoolVar(&enableIdentityConfigMap, "enable-identity-configmap", false,
 		"Sync wif-<sa> ConfigMap with exchange IDs when a binding is Ready (default: disabled)")
+	flag.BoolVar(&enableControllers, "enable-controllers", true,
+		"Run WorkloadIdentityBinding (and optional SA) controllers")
 	flag.BoolVar(&enablePodMutator, "enable-pod-mutator", false,
 		"Enable mutating webhook that injects WIF env and projected token (default: disabled)")
 	flag.StringVar(&webhookCertDir, "webhook-cert-dir", defaultWebhookCertDir,
 		"Directory containing tls.crt and tls.key for the pod mutator webhook")
 	flag.IntVar(&webhookPort, "webhook-port", defaultWebhookPort,
 		"Port for the pod mutator webhook server")
+	flag.StringVar(&webhookAudience, "webhook-audience", config.DefaultWebhookAudience,
+		"Audience for projected tokens injected by the pod mutator")
 	flag.StringVar(&allowedPoliciesRaw, "allowed-policies", "",
 		"Comma-separated allowlist of IAM policy identities/slugs/names (empty = allow any)")
 	flag.StringVar(&allowedRolesRaw, "allowed-roles", "",
@@ -130,24 +138,37 @@ func main() {
 		RequeueMissingIDP:               requeueMissingIDP,
 		EnableServiceAccountAnnotations: enableServiceAccountAnnotations,
 		EnableIdentityConfigMap:         enableIdentityConfigMap,
+		EnableControllers:               enableControllers,
 		EnablePodMutator:                enablePodMutator,
 		WebhookCertDir:                  strings.TrimSpace(webhookCertDir),
 		WebhookPort:                     webhookPort,
+		WebhookAudience:                 strings.TrimSpace(webhookAudience),
 		AllowedPolicies:                 splitCSV(allowedPoliciesRaw),
 		AllowedRoles:                    splitCSV(allowedRolesRaw),
 	}
-	if len(cfg.TrustedAudiences) == 0 {
+	if cfg.EnableControllers && len(cfg.TrustedAudiences) == 0 {
 		cfg.TrustedAudiences = []string{cfg.ThalassaURL}
+	}
+	if cfg.WebhookAudience == "" {
+		cfg.WebhookAudience = cfg.ResolveWebhookAudience()
+	}
+	// Webhook-only replicas must all serve admission; leader election is unused.
+	if cfg.EnablePodMutator && !cfg.EnableControllers {
+		cfg.EnableLeaderElection = false
 	}
 	if err := cfg.Validate(); err != nil {
 		setupLog.Error(err, "invalid configuration")
 		os.Exit(1)
 	}
 
-	tc, err := ithalassa.NewClient(cfg)
-	if err != nil {
-		setupLog.Error(err, "unable to create Thalassa client")
-		os.Exit(1)
+	var tc gothalassa.Client
+	if cfg.EnableControllers {
+		var err error
+		tc, err = ithalassa.NewClient(cfg)
+		if err != nil {
+			setupLog.Error(err, "unable to create Thalassa client")
+			os.Exit(1)
+		}
 	}
 
 	metricsServerOptions := metricsserver.Options{
@@ -162,7 +183,7 @@ func main() {
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
 		HealthProbeBindAddress: probeAddr,
-		LeaderElection:         enableLeaderElection,
+		LeaderElection:         cfg.EnableLeaderElection,
 		LeaderElectionID:       "thalassa-workload-identity-controller",
 	}
 	if cfg.EnablePodMutator {
@@ -171,7 +192,7 @@ func main() {
 			CertDir: cfg.WebhookCertDir,
 		})
 	}
-	if len(cfg.WatchNamespaces) > 0 {
+	if cfg.EnableControllers && len(cfg.WatchNamespaces) > 0 {
 		nsCache := map[string]cache.Config{}
 		for _, ns := range cfg.WatchNamespaces {
 			nsCache[ns] = cache.Config{}
@@ -185,31 +206,33 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := (&controller.WorkloadIdentityBindingReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-		IAM:    tc.IAM(),
-		Config: cfg,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "WorkloadIdentityBinding")
-		os.Exit(1)
-	}
-
-	if cfg.EnableServiceAccountAnnotations {
-		setupLog.Info("ServiceAccount annotation reconciliation enabled")
-		if err := (&controller.ServiceAccountReconciler{
+	if cfg.EnableControllers {
+		if err := (&controller.WorkloadIdentityBindingReconciler{
 			Client: mgr.GetClient(),
 			Scheme: mgr.GetScheme(),
 			IAM:    tc.IAM(),
 			Config: cfg,
 		}).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "ServiceAccount")
+			setupLog.Error(err, "unable to create controller", "controller", "WorkloadIdentityBinding")
 			os.Exit(1)
+		}
+
+		if cfg.EnableServiceAccountAnnotations {
+			setupLog.Info("ServiceAccount annotation reconciliation enabled")
+			if err := (&controller.ServiceAccountReconciler{
+				Client: mgr.GetClient(),
+				Scheme: mgr.GetScheme(),
+				IAM:    tc.IAM(),
+				Config: cfg,
+			}).SetupWithManager(mgr); err != nil {
+				setupLog.Error(err, "unable to create controller", "controller", "ServiceAccount")
+				os.Exit(1)
+			}
 		}
 	}
 
 	if cfg.EnablePodMutator {
-		audience := cfg.TrustedAudiences[0]
+		audience := cfg.ResolveWebhookAudience()
 		setupLog.Info("pod mutator webhook enabled", "path", podMutatorPath, "audience", audience)
 		mgr.GetWebhookServer().Register(podMutatorPath, &admission.Webhook{
 			Handler: &podmutator.Handler{
@@ -236,11 +259,11 @@ func main() {
 	}
 
 	setupLog.Info("starting manager",
+		"controllers", cfg.EnableControllers,
+		"podMutator", cfg.EnablePodMutator,
 		"organisation", cfg.OrganisationID,
 		"cluster", cfg.ClusterIdentity,
-		"serviceAccountAnnotations", cfg.EnableServiceAccountAnnotations,
-		"identityConfigMap", cfg.EnableIdentityConfigMap,
-		"podMutator", cfg.EnablePodMutator,
+		"leaderElect", cfg.EnableLeaderElection,
 		"metricsSecure", secureMetrics,
 	)
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {

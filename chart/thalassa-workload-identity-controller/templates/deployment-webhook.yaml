@@ -1,0 +1,70 @@
+{{- if .Values.webhook.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "twic.fullname" . }}-webhook
+  labels:
+    {{- include "twic.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webhook
+spec:
+  replicas: {{ .Values.webhook.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "twic.webhookSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "twic.labels" . | nindent 8 }}
+        app.kubernetes.io/component: webhook
+    spec:
+      serviceAccountName: {{ include "twic.webhookServiceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: manager
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --enable-controllers=false
+            - --enable-pod-mutator=true
+            - --leader-elect=false
+            {{- if .Values.metrics.enabled }}
+            - --metrics-bind-address={{ .Values.metrics.bindAddress }}
+            - --metrics-secure={{ .Values.metrics.secure }}
+            {{- else }}
+            - --metrics-bind-address=0
+            {{- end }}
+            - --health-probe-bind-address={{ .Values.webhook.probeAddr }}
+            - --webhook-cert-dir=/tmp/k8s-webhook-server/serving-certs
+            - --webhook-port={{ .Values.webhook.port }}
+            - --webhook-audience={{ .Values.webhook.audience | default .Values.thalassa.projectedToken.audience | default .Values.thalassa.url }}
+          ports:
+            {{- if .Values.metrics.enabled }}
+            - name: https
+              containerPort: {{ .Values.metrics.servicePort }}
+            {{- end }}
+            - name: health
+              containerPort: 8081
+            - name: webhook
+              containerPort: {{ .Values.webhook.port }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+          resources:
+            {{- toYaml (.Values.webhook.resources | default .Values.resources) | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: webhook-certs
+              mountPath: /tmp/k8s-webhook-server/serving-certs
+              readOnly: true
+      volumes:
+        - name: webhook-certs
+          secret:
+            secretName: {{ include "twic.webhookCertSecretName" . }}
+{{- end }}

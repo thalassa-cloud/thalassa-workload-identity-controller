@@ -1,13 +1,14 @@
-{{- if gt (int .Values.replicaCount) 1 }}
+{{- if and .Values.webhook.enabled (gt (int .Values.webhook.replicaCount) 1) }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: {{ include "twic.fullname" . }}
+  name: {{ include "twic.fullname" . }}-webhook
   labels:
     {{- include "twic.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webhook
 spec:
-  minAvailable: {{ .Values.minAvailable }}
+  minAvailable: {{ .Values.webhook.minAvailable }}
   selector:
     matchLabels:
-      {{- include "twic.selectorLabels" . | nindent 6 }}
+      {{- include "twic.webhookSelectorLabels" . | nindent 6 }}
 {{- end }}

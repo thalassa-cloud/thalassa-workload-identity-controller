@@ -12,5 +12,5 @@ spec:
       protocol: TCP
       name: https
   selector:
-    {{- include "twic.selectorLabels" . | nindent 4 }}
+    {{- include "twic.webhookSelectorLabels" . | nindent 4 }}
 {{- end }}

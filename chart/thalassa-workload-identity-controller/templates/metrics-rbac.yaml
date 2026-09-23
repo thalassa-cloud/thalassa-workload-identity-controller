@@ -1,4 +1,5 @@
 {{- if .Values.metrics.enabled }}
+{{- if or .Values.controller.enabled .Values.webhook.enabled }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -25,9 +26,16 @@ roleRef:
   kind: ClusterRole
   name: {{ include "twic.fullname" . }}-metrics-auth
 subjects:
+  {{- if .Values.controller.enabled }}
   - kind: ServiceAccount
-    name: {{ include "twic.serviceAccountName" . }}
+    name: {{ include "twic.controllerServiceAccountName" . }}
     namespace: {{ .Release.Namespace }}
+  {{- end }}
+  {{- if .Values.webhook.enabled }}
+  - kind: ServiceAccount
+    name: {{ include "twic.webhookServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+  {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -55,6 +63,7 @@ subjects:
   - kind: ServiceAccount
     name: {{ .name | quote }}
     namespace: {{ .namespace | quote }}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- end }}

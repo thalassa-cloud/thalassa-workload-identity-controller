@@ -1,0 +1,6 @@
+# Self-managed: controller + webhook in the same cluster/release.
+controller:
+  enabled: true
+
+webhook:
+  enabled: true

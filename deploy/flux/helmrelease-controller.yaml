@@ -29,12 +29,17 @@ spec:
       clusterIdentity: "k8s-REPLACE_ME"
       serviceAccountId: "sa-REPLACE_ME"
       # project: "proj-REPLACE_ME"
-    # Optional HA webhook (uncomment / merge values-webhook-ha.yaml):
-    # replicaCount: 2
-    # webhook:
-    #   enabled: true
-    #   failurePolicy: Fail
     controller:
+      enabled: true
+      leaderElect: true
       # Tighten for production:
       # allowedPolicies: ["observability:RemoteWriteAccess"]
-      leaderElect: true
+    # Self-managed: enable in-cluster mutator (or use values-incluster.yaml).
+    # webhook:
+    #   enabled: true
+    # HA webhook overlay (values-webhook-ha.yaml):
+    # webhook:
+    #   enabled: true
+    #   replicaCount: 2
+    #   minAvailable: 1
+    #   failurePolicy: Fail
