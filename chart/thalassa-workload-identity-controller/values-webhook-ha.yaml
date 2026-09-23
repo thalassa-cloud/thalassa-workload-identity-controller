@@ -1,0 +1,18 @@
+# Example: high-availability pod mutator webhook.
+# Usage:
+#   helm upgrade --install ... -f values.yaml -f values-webhook-ha.yaml ...
+#
+# Requires cert-manager (default) or webhook.tls.secretName.
+replicaCount: 2
+minAvailable: 1
+
+controller:
+  leaderElect: true
+
+webhook:
+  enabled: true
+  # Fail closed so pods labeled thalassa.cloud/wif.use=true are not scheduled
+  # without injection when the webhook is unavailable.
+  failurePolicy: Fail
+  certManager:
+    enabled: true

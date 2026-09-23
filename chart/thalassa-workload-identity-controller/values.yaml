@@ -1,4 +1,6 @@
 replicaCount: 1
+# Used by PodDisruptionBudget when replicaCount > 1.
+minAvailable: 1
 
 image:
   repository: ghcr.io/thalassa-cloud/thalassa-workload-identity-controller
@@ -15,7 +17,8 @@ serviceAccount:
 
 rbac:
   create: true
-  # Empty = ClusterRole for all namespaces. Non-empty = Role per listed namespace.
+  # Empty = ClusterRole for all namespaces. Non-empty = Role per listed namespace
+  # (watch filter only today; ClusterRole remains until namespaced Roles land).
   watchNamespaces: []
 
 podSecurityContext:
@@ -59,9 +62,9 @@ thalassa:
     expirationSeconds: 3600
 
 controller:
+  # Required when replicaCount > 1.
   leaderElect: true
   requeueMissingIDP: 30s
-  metricsAddr: ":8080"
   probeAddr: ":8081"
   # Legacy ServiceAccount annotation reconciliation (default: off). Prefer CRs.
   enableServiceAccountAnnotations: false
@@ -72,8 +75,26 @@ controller:
   allowedPolicies: []
   allowedRoles: []
 
+metrics:
+  enabled: true
+  bindAddress: ":8443"
+  # Serve metrics over HTTPS with Kubernetes authn/authz.
+  secure: true
+  servicePort: 8443
+  # Grant /metrics get to this ServiceAccount (e.g. Prometheus).
+  prometheusServiceAccount:
+    name: ""
+    namespace: ""
+  serviceMonitor:
+    interval: 30s
+    tlsInsecureSkipVerify: true
+    labels: {}
+
+enableServiceMonitor: false
+
 # Optional mutating webhook: injects THALASSA_* env + projected token for pods
 # labeled thalassa.cloud/wif.use=true when the SA has Ready WIF annotations.
+# For HA: replicaCount >= 2, leaderElect true, failurePolicy Fail (see values-webhook-ha.yaml).
 webhook:
   enabled: false
   port: 9443

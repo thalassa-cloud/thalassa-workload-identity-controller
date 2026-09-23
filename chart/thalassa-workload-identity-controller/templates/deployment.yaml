@@ -1,3 +1,6 @@
+{{- if and (gt (int .Values.replicaCount) 1) (not .Values.controller.leaderElect) }}
+{{- fail "controller.leaderElect must be true when replicaCount > 1" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -22,7 +25,12 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
-            - --metrics-bind-address={{ .Values.controller.metricsAddr }}
+            {{- if .Values.metrics.enabled }}
+            - --metrics-bind-address={{ .Values.metrics.bindAddress }}
+            - --metrics-secure={{ .Values.metrics.secure }}
+            {{- else }}
+            - --metrics-bind-address=0
+            {{- end }}
             - --health-probe-bind-address={{ .Values.controller.probeAddr }}
             - --leader-elect={{ .Values.controller.leaderElect }}
             - --thalassa-url={{ .Values.thalassa.url }}
@@ -56,8 +64,10 @@ spec:
             - --watch-namespaces={{ join "," .Values.rbac.watchNamespaces }}
             {{- end }}
           ports:
-            - name: metrics
-              containerPort: 8080
+            {{- if .Values.metrics.enabled }}
+            - name: https
+              containerPort: {{ .Values.metrics.servicePort }}
+            {{- end }}
             - name: health
               containerPort: 8081
             {{- if .Values.webhook.enabled }}

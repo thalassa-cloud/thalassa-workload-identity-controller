@@ -15,9 +15,11 @@ spec:
   ingress:
     - ports:
         - protocol: TCP
-          port: 8080
-        - protocol: TCP
           port: 8081
+        {{- if .Values.metrics.enabled }}
+        - protocol: TCP
+          port: {{ .Values.metrics.servicePort }}
+        {{- end }}
         {{- if .Values.webhook.enabled }}
         - protocol: TCP
           port: {{ .Values.webhook.port }}

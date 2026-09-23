@@ -10,7 +10,7 @@ import (
 const (
 	DefaultThalassaURL       = "https://api.thalassa.cloud"
 	DefaultProbeAddr         = ":8081"
-	DefaultMetricsAddr       = ":8080"
+	DefaultMetricsAddr       = ":8443"
 	DefaultRequeueMissingIDP = 30 * time.Second
 )
 

@@ -63,14 +63,23 @@ helm upgrade --install thalassa-workload-identity-controller \
 | `thalassa.serviceAccountId` | yes | Controller’s Thalassa SA (from bootstrap) |
 | `thalassa.project` | no | Scope for `policyRef` (`X-Project-Identity`); empty = org root |
 | `webhook.enabled` | no | Inject env + projected token into labeled pods (needs cert-manager by default) |
+| `webhook.failurePolicy` | no | Default `Ignore`; use `Fail` with HA (`values-webhook-ha.yaml`) |
+| `metrics.secure` | no | Default `true` (HTTPS + authn/authz on `:8443`) |
+| `enableServiceMonitor` | no | Prometheus Operator ServiceMonitor |
 | `controller.enableIdentityConfigMap` | no | Sync `wif-<sa>` ConfigMap for **all** Ready bindings |
 | `controller.allowedPolicies` / `allowedRoles` | no | Allowlists (empty = allow any) |
 | `rbac.watchNamespaces` | no | Limit watch scope; empty = all namespaces |
 
-Enable the recommended pod webhook:
+Enable the pod webhook (single replica, best-effort injection):
 
 ```bash
 --set webhook.enabled=true
+```
+
+HA webhook (2 replicas, PDB, `failurePolicy: Fail`):
+
+```bash
+-f chart/thalassa-workload-identity-controller/values-webhook-ha.yaml
 ```
 
 Without cert-manager, provide a TLS secret (`tls.crt` / `tls.key`) and set:
@@ -79,6 +88,8 @@ Without cert-manager, provide a TLS secret (`tls.crt` / `tls.key`) and set:
 --set webhook.certManager.enabled=false \
 --set webhook.tls.secretName=my-webhook-certs
 ```
+
+Flux examples: [`deploy/flux/`](deploy/flux/README.md). Chart details: [`chart/thalassa-workload-identity-controller/README.md`](chart/thalassa-workload-identity-controller/README.md).
 
 ### 3. Verify the controller
 
@@ -194,22 +205,6 @@ The controller calls the Thalassa API as its bootstrapped SA. Recommended policy
 | Organisation roles & bindings | only if using `roleRef` |
 
 Controller federated identity scopes: at least `api:read` and `api:write`.
-
-## Troubleshooting
-
-| Symptom | Check |
-| --- | --- |
-| Binding stuck `Pending` / Ready=False `MissingIDP` | Cluster IdP exists and `thalassa.clusterIdentity` matches `kubernetes_cluster_id` |
-| `EnsureFailed` / policy errors | `policyRef` exists at project or org root (matches whether `thalassa.project` is set); allowlists |
-| Webhook pods have no env | Label `thalassa.cloud/wif.use=true`; binding Ready; SA has `wif.organisation-id` + `wif.service-account-id`; cert-manager Certificate Ready |
-| Pod cannot exchange token | Audience `https://api.thalassa.cloud`; subject is `system:serviceaccount:ns:name`; org + SA IDs match binding status |
-
-```bash
-kubectl get wib -A
-kubectl describe wib <name> -n <ns>
-kubectl get sa <name> -n <ns> -o yaml   # look for thalassa.cloud/wif.*
-kubectl get mutatingwebhookconfiguration | grep wif
-```
 
 ## Development
 

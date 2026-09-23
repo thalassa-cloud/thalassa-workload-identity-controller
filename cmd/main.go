@@ -2,7 +2,10 @@ package main
 
 import (
 	"flag"
+	"fmt"
+	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -14,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -43,6 +47,7 @@ func main() {
 	var (
 		metricsAddr                     string
 		probeAddr                       string
+		secureMetrics                   bool
 		enableLeaderElection            bool
 		thalassaURL                     string
 		organisation                    string
@@ -63,7 +68,9 @@ func main() {
 	)
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", config.DefaultMetricsAddr,
-		"The address the metric endpoint binds to.")
+		"The address the metric endpoint binds to. Use :8443 for HTTPS or :8080 for HTTP, or 0 to disable.")
+	flag.BoolVar(&secureMetrics, "metrics-secure", true,
+		"Serve metrics over HTTPS with Kubernetes authn/authz. Set false for plain HTTP.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", config.DefaultProbeAddr,
 		"The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", true,
@@ -143,11 +150,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	metricsServerOptions := metricsserver.Options{
+		BindAddress:   metricsAddr,
+		SecureServing: secureMetrics,
+	}
+	if secureMetrics {
+		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
+	}
+
 	mgrOpts := ctrl.Options{
-		Scheme: scheme,
-		Metrics: metricsserver.Options{
-			BindAddress: metricsAddr,
-		},
+		Scheme:                 scheme,
+		Metrics:                metricsServerOptions,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "thalassa-workload-identity-controller",
@@ -215,6 +228,12 @@ func main() {
 		setupLog.Error(err, "unable to set up ready check")
 		os.Exit(1)
 	}
+	if cfg.EnablePodMutator {
+		if err := mgr.AddReadyzCheck("webhook-cert", webhookCertReady(cfg.WebhookCertDir)); err != nil {
+			setupLog.Error(err, "unable to set up webhook cert ready check")
+			os.Exit(1)
+		}
+	}
 
 	setupLog.Info("starting manager",
 		"organisation", cfg.OrganisationID,
@@ -222,10 +241,25 @@ func main() {
 		"serviceAccountAnnotations", cfg.EnableServiceAccountAnnotations,
 		"identityConfigMap", cfg.EnableIdentityConfigMap,
 		"podMutator", cfg.EnablePodMutator,
+		"metricsSecure", secureMetrics,
 	)
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
+	}
+}
+
+func webhookCertReady(certDir string) healthz.Checker {
+	return func(_ *http.Request) error {
+		certPath := filepath.Join(certDir, "tls.crt")
+		keyPath := filepath.Join(certDir, "tls.key")
+		if _, err := os.Stat(certPath); err != nil {
+			return fmt.Errorf("webhook tls.crt not ready: %w", err)
+		}
+		if _, err := os.Stat(keyPath); err != nil {
+			return fmt.Errorf("webhook tls.key not ready: %w", err)
+		}
+		return nil
 	}
 }
 
