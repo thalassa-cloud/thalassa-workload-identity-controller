@@ -324,16 +324,29 @@ func validateDesired(d bindingDesired) error {
 }
 
 func (r *bindingReconciler) deleteCloudResources(ctx context.Context, desired bindingDesired) error {
+	logger := log.FromContext(ctx)
 	provider, err := wif.FindProviderByClusterID(ctx, r.IAM, r.Config.ClusterIdentity)
 	if err != nil {
+		var notReady *wif.ErrProviderNotReady
+		if errors.As(err, &notReady) {
+			// Unblock finalizer removal when the cluster IdP is gone (resources may
+			// already be unreachable or were cleaned up out-of-band).
+			logger.Info("skipping Thalassa resource delete; cluster IdP not found",
+				"cluster", r.Config.ClusterIdentity)
+			return nil
+		}
 		return fmt.Errorf("resolve cluster identity provider for delete: %w", err)
 	}
 	if provider == nil {
-		return fmt.Errorf("resolve cluster identity provider for delete: provider is nil")
+		logger.Info("skipping Thalassa resource delete; cluster IdP is nil",
+			"cluster", r.Config.ClusterIdentity)
+		return nil
 	}
 	issuer := wif.NormalizeIssuer(provider.ProviderIssuer)
 	if issuer == "" {
-		return fmt.Errorf("cluster identity provider %s has empty issuer", provider.Identity)
+		logger.Info("skipping Thalassa resource delete; cluster IdP has empty issuer",
+			"provider", provider.Identity)
+		return nil
 	}
 	// Prefer resolved policy identity when available.
 	policyRef := strings.TrimSpace(desired.PolicyID)
