@@ -1,0 +1,25 @@
+{{- if and .Values.webhook.enabled .Values.webhook.certManager.enabled }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "twic.fullname" . }}-webhook-selfsigned
+  labels:
+    {{- include "twic.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "twic.fullname" . }}-webhook
+  labels:
+    {{- include "twic.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "twic.webhookCertSecretName" . }}
+  dnsNames:
+    - {{ include "twic.webhookServiceName" . }}.{{ .Release.Namespace }}.svc
+    - {{ include "twic.webhookServiceName" . }}.{{ .Release.Namespace }}.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: {{ include "twic.fullname" . }}-webhook-selfsigned
+{{- end }}

@@ -28,6 +28,28 @@ const (
 	ConfigMapKeyProjectID        = "project-id"
 )
 
+// Pod opt-in label for the mutating webhook.
+const (
+	LabelWIFUse      = "thalassa.cloud/wif.use"
+	LabelWIFUseValue = "true"
+)
+
+// Env vars injected by the pod mutator webhook.
+const (
+	EnvOrganisationID   = "THALASSA_ORGANISATION_ID"
+	EnvServiceAccountID = "THALASSA_SERVICE_ACCOUNT_ID"
+	EnvProjectID        = "THALASSA_PROJECT_ID"
+	EnvSubjectTokenFile = "THALASSA_SUBJECT_TOKEN_FILE"
+)
+
+// Projected volume defaults for webhook injection.
+const (
+	ProjectedVolumeName     = "thalassa-wif"
+	ProjectedTokenMountPath = "/var/run/secrets/thalassa"
+	ProjectedTokenPath      = "token"
+	DefaultSubjectTokenFile = ProjectedTokenMountPath + "/" + ProjectedTokenPath
+)
+
 // FinalizerName is added to opted-in ServiceAccounts (annotation path) and bindings.
 const FinalizerName = "thalassa.cloud/wif-finalizer"
 

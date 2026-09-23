@@ -18,6 +18,10 @@ spec:
           port: 8080
         - protocol: TCP
           port: 8081
+        {{- if .Values.webhook.enabled }}
+        - protocol: TCP
+          port: {{ .Values.webhook.port }}
+        {{- end }}
   egress:
     - ports:
         - protocol: UDP

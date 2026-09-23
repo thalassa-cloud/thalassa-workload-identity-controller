@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/thalassa-cloud/thalassa-workload-identity-controller/internal/config"
 )
 
 func TestValidateDesired(t *testing.T) {
@@ -51,4 +53,11 @@ func TestValidateDesired(t *testing.T) {
 			require.Contains(t, err.Error(), tt.wantErr)
 		})
 	}
+}
+
+func TestIdentityConfigMapGatedByConfig(t *testing.T) {
+	// ConfigMap sync is opt-in; zero-value and explicit false must skip the path.
+	require.False(t, config.Config{}.EnableIdentityConfigMap)
+	require.False(t, config.Config{EnableIdentityConfigMap: false}.EnableIdentityConfigMap)
+	require.True(t, config.Config{EnableIdentityConfigMap: true}.EnableIdentityConfigMap)
 }

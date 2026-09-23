@@ -85,7 +85,7 @@ func sanitizeName(s string) string {
 	return s
 }
 
-// ParseScopes parses comma-separated scopes; empty → api:read.
+// ParseScopes parses comma-separated scopes; empty → openid.
 func ParseScopes(raw string) ([]iam.AccessCredentialsScope, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -94,13 +94,8 @@ func ParseScopes(raw string) ([]iam.AccessCredentialsScope, error) {
 	return ParseScopeList(strings.Split(raw, ","))
 }
 
-// ParseScopeList parses a list of scopes; empty/nil → api:read.
+// ParseScopeList parses a list of scopes; empty/nil/blank-only → openid.
 func ParseScopeList(parts []string) ([]iam.AccessCredentialsScope, error) {
-	if len(parts) == 0 {
-		return []iam.AccessCredentialsScope{
-			iam.AccessCredentialsScopeAPIRead,
-		}, nil
-	}
 	out := make([]iam.AccessCredentialsScope, 0, len(parts))
 	seen := map[string]struct{}{}
 	for _, p := range parts {
@@ -122,14 +117,18 @@ func ParseScopeList(parts []string) ([]iam.AccessCredentialsScope, error) {
 		out = append(out, scope)
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("at least one scope is required")
+		return []iam.AccessCredentialsScope{AccessCredentialsScopeOpenID}, nil
 	}
 	return out, nil
 }
 
+// AccessCredentialsScopeOpenID is the OIDC openid scope (not yet in client-go constants).
+const AccessCredentialsScopeOpenID iam.AccessCredentialsScope = "openid"
+
 func knownScope(s string) (iam.AccessCredentialsScope, bool) {
 	switch iam.AccessCredentialsScope(s) {
-	case iam.AccessCredentialsScopeAPIRead,
+	case AccessCredentialsScopeOpenID,
+		iam.AccessCredentialsScopeAPIRead,
 		iam.AccessCredentialsScopeAPIWrite,
 		iam.AccessCredentialsScopeKubernetes,
 		iam.AccessCredentialsScopeObjectStorage:

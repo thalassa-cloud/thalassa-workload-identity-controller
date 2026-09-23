@@ -22,14 +22,15 @@ import (
 
 // bindingDesired is the normalised desired state from a namespaced CR.
 type bindingDesired struct {
-	Namespace       string
-	ServiceAccount  string
-	PolicyRef       string
-	PolicyID        string // resolved identity from status; preferred on delete
-	RoleRef         string
-	Scopes          []string
-	NameOverride    string
-	DeleteResources bool
+	Namespace         string
+	ServiceAccount    string
+	PolicyRef         string
+	PolicyID          string // resolved identity from status; preferred on delete
+	RoleRef           string
+	Scopes            []string
+	NameOverride      string
+	DeleteResources   bool
+	IdentityConfigMap bool
 }
 
 // bindingObserved is written back to CR status.
@@ -178,14 +179,16 @@ func (r *bindingReconciler) reconcileBinding(
 
 	orgID := strings.TrimSpace(r.Config.OrganisationID)
 	projectID := strings.TrimSpace(r.Config.ProjectIdentity)
-	if err := r.syncIdentityConfigMap(ctx, obj, desired, result.ServiceAccountID, orgID, projectID); err != nil {
-		logger.Error(err, "failed to sync WIF identity ConfigMap")
-		return ctrl.Result{}, &bindingObserved{
-			Phase:   wif.StatusError,
-			Ready:   false,
-			Reason:  "IdentityConfigMapFailed",
-			Message: err.Error(),
-		}, err
+	if desired.IdentityConfigMap || r.Config.EnableIdentityConfigMap {
+		if err := r.syncIdentityConfigMap(ctx, obj, desired, result.ServiceAccountID, orgID, projectID); err != nil {
+			logger.Error(err, "failed to sync WIF identity ConfigMap")
+			return ctrl.Result{}, &bindingObserved{
+				Phase:   wif.StatusError,
+				Ready:   false,
+				Reason:  "IdentityConfigMapFailed",
+				Message: err.Error(),
+			}, err
+		}
 	}
 	if err := r.annotateServiceAccountIdentity(ctx, &sa, result.ServiceAccountID, orgID, projectID); err != nil {
 		logger.Error(err, "failed to annotate ServiceAccount with WIF identity")

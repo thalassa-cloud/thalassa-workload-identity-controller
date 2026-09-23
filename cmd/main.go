@@ -15,14 +15,23 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	iamv1beta1 "github.com/thalassa-cloud/thalassa-workload-identity-controller/api/v1beta1"
 	"github.com/thalassa-cloud/thalassa-workload-identity-controller/internal/config"
 	"github.com/thalassa-cloud/thalassa-workload-identity-controller/internal/controller"
 	ithalassa "github.com/thalassa-cloud/thalassa-workload-identity-controller/internal/thalassa"
+	"github.com/thalassa-cloud/thalassa-workload-identity-controller/internal/webhook/podmutator"
 )
 
 var scheme = runtime.NewScheme()
+
+const (
+	defaultWebhookCertDir = "/tmp/k8s-webhook-server/serving-certs"
+	defaultWebhookPort    = 9443
+	podMutatorPath        = "/mutate-v1-pod"
+)
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
@@ -45,6 +54,10 @@ func main() {
 		watchNamespacesRaw              string
 		requeueMissingIDP               time.Duration
 		enableServiceAccountAnnotations bool
+		enableIdentityConfigMap         bool
+		enablePodMutator                bool
+		webhookCertDir                  string
+		webhookPort                     int
 		allowedPoliciesRaw              string
 		allowedRolesRaw                 string
 	)
@@ -75,6 +88,14 @@ func main() {
 		config.DefaultRequeueMissingIDP, "Requeue when cluster IdP is not ready")
 	flag.BoolVar(&enableServiceAccountAnnotations, "enable-serviceaccount-annotations", false,
 		"Enable legacy ServiceAccount annotation reconciliation (default: disabled)")
+	flag.BoolVar(&enableIdentityConfigMap, "enable-identity-configmap", false,
+		"Sync wif-<sa> ConfigMap with exchange IDs when a binding is Ready (default: disabled)")
+	flag.BoolVar(&enablePodMutator, "enable-pod-mutator", false,
+		"Enable mutating webhook that injects WIF env and projected token (default: disabled)")
+	flag.StringVar(&webhookCertDir, "webhook-cert-dir", defaultWebhookCertDir,
+		"Directory containing tls.crt and tls.key for the pod mutator webhook")
+	flag.IntVar(&webhookPort, "webhook-port", defaultWebhookPort,
+		"Port for the pod mutator webhook server")
 	flag.StringVar(&allowedPoliciesRaw, "allowed-policies", "",
 		"Comma-separated allowlist of IAM policy identities/slugs/names (empty = allow any)")
 	flag.StringVar(&allowedRolesRaw, "allowed-roles", "",
@@ -101,6 +122,10 @@ func main() {
 		EnableLeaderElection:            enableLeaderElection,
 		RequeueMissingIDP:               requeueMissingIDP,
 		EnableServiceAccountAnnotations: enableServiceAccountAnnotations,
+		EnableIdentityConfigMap:         enableIdentityConfigMap,
+		EnablePodMutator:                enablePodMutator,
+		WebhookCertDir:                  strings.TrimSpace(webhookCertDir),
+		WebhookPort:                     webhookPort,
 		AllowedPolicies:                 splitCSV(allowedPoliciesRaw),
 		AllowedRoles:                    splitCSV(allowedRolesRaw),
 	}
@@ -126,6 +151,12 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "thalassa-workload-identity-controller",
+	}
+	if cfg.EnablePodMutator {
+		mgrOpts.WebhookServer = webhook.NewServer(webhook.Options{
+			Port:    cfg.WebhookPort,
+			CertDir: cfg.WebhookCertDir,
+		})
 	}
 	if len(cfg.WatchNamespaces) > 0 {
 		nsCache := map[string]cache.Config{}
@@ -164,6 +195,18 @@ func main() {
 		}
 	}
 
+	if cfg.EnablePodMutator {
+		audience := cfg.TrustedAudiences[0]
+		setupLog.Info("pod mutator webhook enabled", "path", podMutatorPath, "audience", audience)
+		mgr.GetWebhookServer().Register(podMutatorPath, &admission.Webhook{
+			Handler: &podmutator.Handler{
+				Client:   mgr.GetClient(),
+				Decoder:  admission.NewDecoder(mgr.GetScheme()),
+				Audience: audience,
+			},
+		})
+	}
+
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")
 		os.Exit(1)
@@ -177,6 +220,8 @@ func main() {
 		"organisation", cfg.OrganisationID,
 		"cluster", cfg.ClusterIdentity,
 		"serviceAccountAnnotations", cfg.EnableServiceAccountAnnotations,
+		"identityConfigMap", cfg.EnableIdentityConfigMap,
+		"podMutator", cfg.EnablePodMutator,
 	)
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "problem running manager")

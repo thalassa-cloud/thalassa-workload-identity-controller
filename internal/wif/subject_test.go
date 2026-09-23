@@ -53,12 +53,12 @@ func TestParseScopes(t *testing.T) {
 		{
 			name: "default",
 			raw:  "",
-			want: []iam.AccessCredentialsScope{iam.AccessCredentialsScopeAPIRead},
+			want: []iam.AccessCredentialsScope{AccessCredentialsScopeOpenID},
 		},
 		{
 			name: "custom",
-			raw:  "api:read,kubernetes",
-			want: []iam.AccessCredentialsScope{iam.AccessCredentialsScopeAPIRead, iam.AccessCredentialsScopeKubernetes},
+			raw:  "openid,api:read",
+			want: []iam.AccessCredentialsScope{AccessCredentialsScopeOpenID, iam.AccessCredentialsScopeAPIRead},
 		},
 		{name: "wildcard", raw: "*", wantErr: "wildcard"},
 		{name: "unknown", raw: "nope", wantErr: "unsupported"},
@@ -71,6 +71,30 @@ func TestParseScopes(t *testing.T) {
 				require.Contains(t, err.Error(), tt.wantErr)
 				return
 			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestParseScopeList(t *testing.T) {
+	tests := []struct {
+		name  string
+		parts []string
+		want  []iam.AccessCredentialsScope
+	}{
+		{name: "nil", want: []iam.AccessCredentialsScope{AccessCredentialsScopeOpenID}},
+		{name: "empty", parts: []string{}, want: []iam.AccessCredentialsScope{AccessCredentialsScopeOpenID}},
+		{name: "blank only", parts: []string{"", "  "}, want: []iam.AccessCredentialsScope{AccessCredentialsScopeOpenID}},
+		{
+			name:  "explicit",
+			parts: []string{"api:write"},
+			want:  []iam.AccessCredentialsScope{iam.AccessCredentialsScopeAPIWrite},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseScopeList(tt.parts)
 			require.NoError(t, err)
 			require.Equal(t, tt.want, got)
 		})

@@ -31,6 +31,10 @@ type Config struct {
 	EnableLeaderElection            bool
 	RequeueMissingIDP               time.Duration
 	EnableServiceAccountAnnotations bool
+	EnableIdentityConfigMap         bool // sync ConfigMap for all bindings when true
+	EnablePodMutator                bool
+	WebhookCertDir                  string
+	WebhookPort                     int
 }
 
 // Validate fails closed on missing required fields.

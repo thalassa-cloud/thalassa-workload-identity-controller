@@ -17,7 +17,7 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.serviceAccountName
+    - jsonPath: .serviceAccountName
       name: SA
       type: string
     - jsonPath: .status.phase
@@ -41,8 +41,9 @@ spec:
     name: v1beta1
     schema:
       openAPIV3Schema:
-        description: WorkloadIdentityBinding binds a namespaced ServiceAccount to
-          Thalassa WIF.
+        description: |-
+          WorkloadIdentityBinding binds a namespaced ServiceAccount to Thalassa WIF.
+          Desired fields live at the root (RoleBinding-style), not under spec.
         properties:
           apiVersion:
             description: |-
@@ -51,6 +52,16 @@ spec:
               may reject unrecognized values.
               More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
             type: string
+          deleteResources:
+            description: DeleteResources deletes managed Thalassa resources when this
+              binding is deleted.
+            type: boolean
+          identityConfigMap:
+            description: |-
+              IdentityConfigMap, when true, syncs ConfigMap wif-<serviceAccountName> with
+              organisation-id / service-account-id (and project-id when configured) for pod mounts.
+              Can also be enabled cluster-wide with --enable-identity-configmap.
+            type: boolean
           kind:
             description: |-
               Kind is a string value representing the REST resource this object represents.
@@ -61,54 +72,34 @@ spec:
             type: string
           metadata:
             type: object
-          spec:
+          nameOverride:
+            description: NameOverride overrides the Thalassa service account display
+              name.
+            type: string
+          policyRef:
             description: |-
-              WorkloadIdentityBindingSpec defines the desired WIF state for a ServiceAccount
-              in the same namespace as this resource.
-            properties:
-              deleteResources:
-                description: DeleteResources deletes managed Thalassa resources when
-                  this binding is deleted.
-                type: boolean
-              nameOverride:
-                description: NameOverride overrides the Thalassa service account display
-                  name.
-                type: string
-              policyRef:
-                description: |-
-                  PolicyRef is an IAM policy identity (preferred), slug, or name.
-                  Prefer the stable policy identity; status.policyID always records the resolved identity.
-                type: string
-              roleRef:
-                description: |-
-                  RoleRef is an organisation role identity, slug, or name (transitional).
-                  At least one of policyRef or roleRef is required.
-                type: string
-              scopes:
-                description: Scopes are OIDC token scopes. Empty defaults to api:read.
-                items:
-                  type: string
-                type: array
-              serviceAccountName:
-                description: ServiceAccountName is the Kubernetes ServiceAccount in
-                  this namespace.
-                minLength: 1
-                type: string
-            required:
-            - serviceAccountName
-            type: object
-            x-kubernetes-validations:
-            - message: at least one of policyRef or roleRef is required
-              rule: (has(self.policyRef) && size(self.policyRef) > 0) || (has(self.roleRef)
-                && size(self.roleRef) > 0)
-            - message: wildcard policyRef is not allowed
-              rule: '!has(self.policyRef) || self.policyRef != ''*'''
-            - message: wildcard roleRef is not allowed
-              rule: '!has(self.roleRef) || self.roleRef != ''*'''
-            - message: wildcard scope is not allowed
-              rule: '!has(self.scopes) || self.scopes.all(s, s != ''*'')'
+              PolicyRef is an IAM policy identity (preferred), slug, or name.
+              Prefer the stable policy identity; status.policyID always records the resolved identity.
+            type: string
+          roleRef:
+            description: |-
+              RoleRef is an organisation role identity, slug, or name (transitional).
+              At least one of policyRef or roleRef is required.
+            type: string
+          scopes:
+            default:
+            - openid
+            description: Scopes are OIDC token scopes. Empty defaults to openid.
+            items:
+              type: string
+            type: array
+          serviceAccountName:
+            description: ServiceAccountName is the Kubernetes ServiceAccount in this
+              namespace.
+            minLength: 1
+            type: string
           status:
-            description: WorkloadIdentityBindingStatus is the observed state.
+            description: Status is the observed state.
             properties:
               conditions:
                 description: Conditions represent the latest available observations.
@@ -194,7 +185,7 @@ spec:
               policyID:
                 description: |-
                   PolicyID is the resolved Thalassa IAM policy identity (never slug/name).
-                  Prefer this value over spec.policyRef for lookups and cleanup.
+                  Prefer this value over policyRef for lookups and cleanup.
                 type: string
               projectID:
                 description: ProjectID is the Thalassa project identity when the controller
@@ -207,7 +198,19 @@ spec:
                 description: ServiceAccountID is the Thalassa service account identity.
                 type: string
             type: object
+        required:
+        - serviceAccountName
         type: object
+        x-kubernetes-validations:
+        - message: at least one of policyRef or roleRef is required
+          rule: (has(self.policyRef) && size(self.policyRef) > 0) || (has(self.roleRef)
+            && size(self.roleRef) > 0)
+        - message: wildcard policyRef is not allowed
+          rule: '!has(self.policyRef) || self.policyRef != ''*'''
+        - message: wildcard roleRef is not allowed
+          rule: '!has(self.roleRef) || self.roleRef != ''*'''
+        - message: wildcard scope is not allowed
+          rule: '!has(self.scopes) || self.scopes.all(s, s != ''*'')'
     served: true
     storage: true
     subresources:

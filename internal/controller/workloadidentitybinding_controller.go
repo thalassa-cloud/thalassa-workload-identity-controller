@@ -48,14 +48,15 @@ func (r *WorkloadIdentityBindingReconciler) Reconcile(ctx context.Context, req c
 
 	br := &bindingReconciler{Client: r.Client, Scheme: r.Scheme, IAM: r.IAM, Config: r.Config}
 	desired := bindingDesired{
-		Namespace:       binding.Namespace,
-		ServiceAccount:  binding.Spec.ServiceAccountName,
-		PolicyRef:       binding.Spec.PolicyRef,
-		PolicyID:        binding.Status.PolicyID,
-		RoleRef:         binding.Spec.RoleRef,
-		Scopes:          binding.Spec.Scopes,
-		NameOverride:    binding.Spec.NameOverride,
-		DeleteResources: binding.Spec.DeleteResources,
+		Namespace:         binding.Namespace,
+		ServiceAccount:    binding.ServiceAccountName,
+		PolicyRef:         binding.PolicyRef,
+		PolicyID:          binding.Status.PolicyID,
+		RoleRef:           binding.RoleRef,
+		Scopes:            binding.Scopes,
+		NameOverride:      binding.NameOverride,
+		DeleteResources:   binding.DeleteResources,
+		IdentityConfigMap: binding.IdentityConfigMap,
 	}
 	hasFinalizer := controllerutil.ContainsFinalizer(&binding, wif.BindingFinalizerName)
 	result, obs, err := br.reconcileBinding(ctx, &binding, desired, hasFinalizer)

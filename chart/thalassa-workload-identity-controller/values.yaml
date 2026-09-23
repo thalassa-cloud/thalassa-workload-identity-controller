@@ -65,9 +65,24 @@ controller:
   probeAddr: ":8081"
   # Legacy ServiceAccount annotation reconciliation (default: off). Prefer CRs.
   enableServiceAccountAnnotations: false
+  # Sync ConfigMap wif-<sa> for all Ready bindings (default: off).
+  # Prefer per-binding identityConfigMap: true, or the pod mutator webhook.
+  enableIdentityConfigMap: false
   # Optional allowlists (empty = allow any). Match identity, slug, or name.
   allowedPolicies: []
   allowedRoles: []
+
+# Optional mutating webhook: injects THALASSA_* env + projected token for pods
+# labeled thalassa.cloud/wif.use=true when the SA has Ready WIF annotations.
+webhook:
+  enabled: false
+  port: 9443
+  failurePolicy: Ignore
+  certManager:
+    enabled: true
+  tls:
+    # Used when certManager.enabled=false. Must contain tls.crt and tls.key.
+    secretName: ""
 
 networkPolicy:
   enabled: true

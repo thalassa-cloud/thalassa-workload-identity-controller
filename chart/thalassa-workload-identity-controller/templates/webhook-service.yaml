@@ -1,0 +1,16 @@
+{{- if .Values.webhook.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "twic.webhookServiceName" . }}
+  labels:
+    {{- include "twic.labels" . | nindent 4 }}
+spec:
+  ports:
+    - port: 443
+      targetPort: webhook
+      protocol: TCP
+      name: https
+  selector:
+    {{- include "twic.selectorLabels" . | nindent 4 }}
+{{- end }}

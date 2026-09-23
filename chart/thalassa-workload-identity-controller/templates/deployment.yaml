@@ -34,6 +34,12 @@ spec:
             - --thalassa-service-account-id={{ required "thalassa.serviceAccountId is required" .Values.thalassa.serviceAccountId }}
             - --requeue-missing-idp={{ .Values.controller.requeueMissingIDP }}
             - --enable-serviceaccount-annotations={{ .Values.controller.enableServiceAccountAnnotations }}
+            - --enable-identity-configmap={{ .Values.controller.enableIdentityConfigMap }}
+            - --enable-pod-mutator={{ .Values.webhook.enabled }}
+            {{- if .Values.webhook.enabled }}
+            - --webhook-cert-dir=/tmp/k8s-webhook-server/serving-certs
+            - --webhook-port={{ .Values.webhook.port }}
+            {{- end }}
             {{- if .Values.controller.allowedPolicies }}
             - --allowed-policies={{ join "," .Values.controller.allowedPolicies }}
             {{- end }}
@@ -54,6 +60,10 @@ spec:
               containerPort: 8080
             - name: health
               containerPort: 8081
+            {{- if .Values.webhook.enabled }}
+            - name: webhook
+              containerPort: {{ .Values.webhook.port }}
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz
@@ -72,6 +82,11 @@ spec:
               mountPath: {{ .Values.thalassa.projectedToken.mountPath }}
               readOnly: true
             {{- end }}
+            {{- if .Values.webhook.enabled }}
+            - name: webhook-certs
+              mountPath: /tmp/k8s-webhook-server/serving-certs
+              readOnly: true
+            {{- end }}
       volumes:
         {{- if .Values.thalassa.projectedToken.enabled }}
         - name: thalassa-token
@@ -81,4 +96,9 @@ spec:
                   path: {{ .Values.thalassa.projectedToken.path }}
                   audience: {{ .Values.thalassa.projectedToken.audience | quote }}
                   expirationSeconds: {{ .Values.thalassa.projectedToken.expirationSeconds }}
+        {{- end }}
+        {{- if .Values.webhook.enabled }}
+        - name: webhook-certs
+          secret:
+            secretName: {{ include "twic.webhookCertSecretName" . }}
         {{- end }}

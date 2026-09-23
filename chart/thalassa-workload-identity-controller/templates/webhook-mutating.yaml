@@ -1,0 +1,36 @@
+{{- if .Values.webhook.enabled }}
+{{- if and (not .Values.webhook.certManager.enabled) (eq (.Values.webhook.tls.secretName | default "") "") }}
+{{- fail "webhook.tls.secretName is required when webhook.enabled=true and webhook.certManager.enabled=false" }}
+{{- end }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: {{ include "twic.fullname" . }}-pod-mutator
+  labels:
+    {{- include "twic.labels" . | nindent 4 }}
+  {{- if .Values.webhook.certManager.enabled }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "twic.fullname" . }}-webhook
+  {{- end }}
+webhooks:
+  - name: pod.wif.thalassa.cloud
+    admissionReviewVersions: ["v1"]
+    clientConfig:
+      service:
+        name: {{ include "twic.webhookServiceName" . }}
+        namespace: {{ .Release.Namespace }}
+        path: /mutate-v1-pod
+        port: 443
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    sideEffects: None
+    timeoutSeconds: 10
+    objectSelector:
+      matchLabels:
+        thalassa.cloud/wif.use: "true"
+    rules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+        scope: Namespaced
+{{- end }}

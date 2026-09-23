@@ -34,3 +34,15 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{- define "twic.webhookCertSecretName" -}}
+{{- if and .Values.webhook.enabled (not .Values.webhook.certManager.enabled) (ne .Values.webhook.tls.secretName "") }}
+{{- .Values.webhook.tls.secretName }}
+{{- else }}
+{{- printf "%s-webhook-certs" (include "twic.fullname" .) }}
+{{- end }}
+{{- end }}
+
+{{- define "twic.webhookServiceName" -}}
+{{- printf "%s-webhook" (include "twic.fullname" .) }}
+{{- end }}

@@ -1,86 +1,31 @@
 # Thalassa Workload Identity Controller
 
-> **Experimental.** APIs (`v1beta1`), behaviour, and configuration may change without a stable compatibility guarantee. Use with caution in production.
+> **Experimental** (`v1beta1`). APIs and behaviour may change.
 
-Kubernetes controller that provisions Thalassa Cloud service accounts, federated identities, and IAM policy bindings. Making it easy to support workloads that can authenticate with projected JWTs via Workload Identity Federation without per-SA `tcloud` bootstrap runs.
+Provisions Thalassa Cloud IAM (service account, federated identity, policy binding) for a Kubernetes ServiceAccount so pods can exchange a projected JWT for a Thalassa bearer token via [Workload Identity Federation](https://docs.thalassa.cloud/docs/iam/oidc/).
 
-> The controller does not create the cluster OIDC identity provider. On Thalassa-managed clusters that IdP already exists (label `kubernetes_cluster_id=<cluster identity>`), same as `tcloud iam workload-identity-federation bootstrap kubernetes --cluster …`. Non managed clusters need to create the Identity Provider through API.
+**Does not** create the cluster OIDC identity provider. On Thalassa-managed clusters that IdP already exists (`kubernetes_cluster_id=<cluster identity>`). For other clusters, create the IdP via the API first.
 
-## WorkloadIdentityBinding
+## Prerequisites
 
-```yaml
-apiVersion: iam.thalassa.cloud/v1beta1
-kind: WorkloadIdentityBinding
-metadata:
-  name: observability-proxy
-  namespace: monitoring
-spec:
-  serviceAccountName: observability-proxy
-  policyRef: observability:RemoteWriteAccess   # preferred
-  # roleRef: observability:RemoteWriteAccess   # transitional
-  # scopes: ["api:read", "api:write"]          # default: ["api:read"]
-  # deleteResources: false
-```
+| Item | Notes |
+| --- | --- |
+| Kubernetes cluster with OIDC IdP registered in Thalassa | Same cluster identity you use with `tcloud` |
+| `tcloud` CLI | Bootstrap the controller’s own WIF once |
+| Helm 3 | Chart under `chart/thalassa-workload-identity-controller` |
+| cert-manager (optional) | Only if you enable the pod mutator webhook with default TLS |
 
-Prefer `policyRef` using the stable policy identity. `status.policyID` always stores the resolved identity (never slug/name) and is used for cleanup.
-
-- With `thalassa.project` / `--project` set, `policyRef` resolves in that project.
-- With project unset, `policyRef` resolves at the organisation root IAM scope.
-
-Optional controller allowlists (`--allowed-policies` / `--allowed-roles`, Helm `controller.allowedPolicies` / `allowedRoles`): when set, refs must match by identity, slug, or name. Empty = allow any.
-
-CRD CEL rejects missing `policyRef`/`roleRef` and wildcards at apply time.
-
-Status: `phase`, `serviceAccountID`, `organisationID`, `projectID`, `federatedIdentityID`, `providerID`, `policyID`, `conditions`.
+Collect these IDs before install:
 
 ```bash
-kubectl get wib -n monitoring
-# NAME                  SA                    PHASE   POLICY   READY   REASON   AGE
+ORG_ID=...           # Thalassa organisation
+CLUSTER_ID=...       # Thalassa Kubernetes cluster identity
+PROJECT_ID=...       # optional; empty = organisation-root IAM for policyRef
 ```
-
-JWT subject: `system:serviceaccount:<namespace>:<name>`.
-
-### Pod identity files (token exchange)
-
-OIDC token exchange needs `organisation_id` and `service_account_id` in addition to the projected Kubernetes JWT. When Ready, the controller syncs ConfigMap `wif-<serviceAccountName>` in the binding namespace:
-
-| Key | File (example mount) | Required for exchange |
-| --- | --- | --- |
-| `organisation-id` | `/var/run/secrets/thalassa/organisation-id` | yes |
-| `service-account-id` | `/var/run/secrets/thalassa/service-account-id` | yes |
-| `project-id` | `/var/run/secrets/thalassa/project-id` | no (API project scope; only when `--project` is set) |
-
-The same IDs are written as annotations on the target ServiceAccount. Mount the ConfigMap next to the projected token (see [examples/serviceaccount.yaml](examples/serviceaccount.yaml)).
-
-### Kubernetes RBAC (who may bind)
-
-Grant `create`/`update`/`delete` on `workloadidentitybindings` only to platform/GitOps identities. App teams can own ServiceAccounts without minting cloud IAM.
-
-```yaml
-apiGroups: ["iam.thalassa.cloud"]
-resources: ["workloadidentitybindings"]
-verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-```
-
-## Required Thalassa permissions
-
-The controller authenticates as a Thalassa service account (via WIF token exchange). See [API authorization](https://docs.thalassa.cloud/docs/iam/api-authorization/) and [Default IAM policies](https://docs.thalassa.cloud/docs/iam/iam-policies/default-policies/).
-
-| API area | Scope | What the controller does |
-| --- | --- | --- |
-| Service accounts | Project / org | List, create, delete |
-| Federated identities | Project / org | List, create, update, delete |
-| Federated identity providers | Project / org | List (lookup cluster IdP; never create) |
-| IAM policies & bindings | Project or org root | Get/list policies; list/create/delete bindings |
-| Organisation roles & bindings | Organisation | Legacy `roleRef` path only |
-
-Recommended: bind the controller SA to [`iam:FullAccess`](https://docs.thalassa.cloud/docs/iam/iam-policies/default-policies/) at the scope where it will manage policies (project and/or org root).
-
-OIDC scopes on the controller federated identity: at least `api:read` and `api:write` (controller needs write to provision resources).
 
 ## Install
 
-### 1. Bootstrap the controller’s own WIF (once)
+### 1. Bootstrap the controller service account (once)
 
 ```bash
 tcloud iam workload-identity-federation bootstrap kubernetes \
@@ -91,34 +36,179 @@ tcloud iam workload-identity-federation bootstrap kubernetes \
   --scope api:read,api:write
 ```
 
-### 2. Helm
+Save the printed Thalassa service account ID as `CONTROLLER_THALASSA_SA_ID`.
+
+### 2. Install the chart
 
 ```bash
 helm upgrade --install thalassa-workload-identity-controller \
   ./chart/thalassa-workload-identity-controller \
   --namespace thalassa-system --create-namespace \
   --set thalassa.organisation="$ORG_ID" \
-  --set thalassa.project="$PROJECT_ID" \
   --set thalassa.clusterIdentity="$CLUSTER_ID" \
-  --set thalassa.serviceAccountId="$CONTROLLER_THALASSA_SA_ID"
+  --set thalassa.serviceAccountId="$CONTROLLER_THALASSA_SA_ID" \
+  --set thalassa.project="$PROJECT_ID"   # omit or empty for org-root policies
 ```
 
+| Helm value | Required | Purpose |
+| --- | --- | --- |
+| `thalassa.organisation` | yes | Organisation for API calls / token exchange |
+| `thalassa.clusterIdentity` | yes | Lookup cluster OIDC IdP |
+| `thalassa.serviceAccountId` | yes | Controller’s Thalassa SA (from bootstrap) |
+| `thalassa.project` | no | Scope for `policyRef` (`X-Project-Identity`); empty = org root |
+| `webhook.enabled` | no | Inject env + projected token into labeled pods (needs cert-manager by default) |
+| `controller.enableIdentityConfigMap` | no | Sync `wif-<sa>` ConfigMap for **all** Ready bindings |
+| `controller.allowedPolicies` / `allowedRoles` | no | Allowlists (empty = allow any) |
+| `rbac.watchNamespaces` | no | Limit watch scope; empty = all namespaces |
 
-Optional hardening:
+Enable the recommended pod webhook:
 
 ```bash
---set controller.allowedPolicies="{obs-write,pol-abc123}" \
---set controller.allowedRoles="{reader}"
+--set webhook.enabled=true
 ```
 
-### 3. Create a binding
+Without cert-manager, provide a TLS secret (`tls.crt` / `tls.key`) and set:
 
-See [examples/serviceaccount.yaml](examples/serviceaccount.yaml). After `status.phase=Ready`, mount the projected JWT (audience `https://api.thalassa.cloud`) and ConfigMap `wif-<sa-name>` for organisation/service-account IDs used in token exchange.
+```bash
+--set webhook.certManager.enabled=false \
+--set webhook.tls.secretName=my-webhook-certs
+```
+
+### 3. Verify the controller
+
+```bash
+kubectl -n thalassa-system rollout status deploy/thalassa-workload-identity-controller
+kubectl -n thalassa-system logs deploy/thalassa-workload-identity-controller -c manager -f
+```
+
+## Day-2: bind a workload
+
+Desired fields are at the **root** of the CR (like `RoleBinding`), not under `spec`.
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: observability-proxy
+  namespace: monitoring
+---
+apiVersion: iam.thalassa.cloud/v1beta1
+kind: WorkloadIdentityBinding
+metadata:
+  name: observability-proxy
+  namespace: monitoring
+serviceAccountName: observability-proxy
+policyRef: observability:RemoteWriteAccess   # prefer stable policy identity
+# roleRef: ...                                # transitional alternative
+# scopes: ["openid"]                          # default if omitted
+# identityConfigMap: true                     # optional per-binding ConfigMap
+# deleteResources: true                       # delete Thalassa resources on CR delete
+```
+
+Full example (including pod label): [examples/serviceaccount.yaml](examples/serviceaccount.yaml).
+
+### Check status
+
+```bash
+kubectl get wib -n monitoring
+kubectl describe wib observability-proxy -n monitoring
+```
+
+Ready when `status.phase=Ready` and condition `Ready=True`. Useful status fields: `serviceAccountID`, `organisationID`, `projectID`, `policyID`, `federatedIdentityID`.
+
+JWT subject used for federation: `system:serviceaccount:<namespace>:<name>`.
+
+Projected token audience for exchange: `https://api.thalassa.cloud` (override via `thalassa.projectedToken.audience` / trusted audiences).
+
+## How pods get credentials
+
+Token exchange needs **organisation ID + Thalassa service account ID + projected JWT**. When Ready, the controller always annotates the Kubernetes ServiceAccount:
+
+| Annotation | When |
+| --- | --- |
+| `thalassa.cloud/wif.organisation-id` | always |
+| `thalassa.cloud/wif.service-account-id` | always |
+| `thalassa.cloud/wif.project-id` | only if controller `--project` / `thalassa.project` is set |
+
+Pick one consumption path:
+
+### A. Pod mutator webhook (recommended)
+
+1. Helm: `webhook.enabled=true`
+2. Label the pod: `thalassa.cloud/wif.use: "true"` (label, not annotation — required for webhook `objectSelector`)
+3. Webhook injects env + volume when the SA annotations are present:
+
+| Env | Value |
+| --- | --- |
+| `THALASSA_ORGANISATION_ID` | from SA annotation |
+| `THALASSA_SERVICE_ACCOUNT_ID` | from SA annotation |
+| `THALASSA_PROJECT_ID` | if annotated |
+| `THALASSA_SUBJECT_TOKEN_FILE` | `/var/run/secrets/thalassa/token` |
+
+Default webhook `failurePolicy` is `Ignore` (scheduling continues if the webhook is down). Set `webhook.failurePolicy=Fail` for stricter clusters.
+
+### B. Identity ConfigMap
+
+Set `identityConfigMap: true` on the binding (and/or `controller.enableIdentityConfigMap=true`). Creates ConfigMap `wif-<serviceAccountName>`:
+
+| Key | Required for exchange |
+| --- | --- |
+| `organisation-id` | yes |
+| `service-account-id` | yes |
+| `project-id` | no |
+
+Mount it next to a projected SA token (see comments in the example). Turning the flag off does not delete existing ConfigMaps; deleting the binding still GC’s owner-referenced ones.
+
+### C. Explicit config
+
+Copy IDs from `kubectl get wib … -o yaml` / SA annotations into your app Helm values; mount only the projected JWT.
+
+## RBAC (who may create bindings)
+
+Limit `workloadidentitybindings` write access to platform / GitOps identities. App teams can own ServiceAccounts without cloud IAM rights.
+
+```yaml
+apiGroups: ["iam.thalassa.cloud"]
+resources: ["workloadidentitybindings"]
+verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+```
+
+CEL on the CR rejects missing `policyRef`/`roleRef` and wildcards (`*`) at apply time. Optional controller allowlists further restrict which policies/roles may be referenced.
+
+## Controller Thalassa permissions
+
+The controller calls the Thalassa API as its bootstrapped SA. Recommended policy: [`iam:FullAccess`](https://docs.thalassa.cloud/docs/iam/iam-policies/default-policies/) at the project and/or org-root scope where it manages bindings. Docs: [API authorization](https://docs.thalassa.cloud/docs/iam/api-authorization/).
+
+| API area | Access needed |
+| --- | --- |
+| Service accounts | list, create, delete |
+| Federated identities | list, create, update, delete |
+| Federated identity providers | list only (never create) |
+| IAM policies & bindings | get/list policies; list/create/delete bindings |
+| Organisation roles & bindings | only if using `roleRef` |
+
+Controller federated identity scopes: at least `api:read` and `api:write`.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| Binding stuck `Pending` / Ready=False `MissingIDP` | Cluster IdP exists and `thalassa.clusterIdentity` matches `kubernetes_cluster_id` |
+| `EnsureFailed` / policy errors | `policyRef` exists at project or org root (matches whether `thalassa.project` is set); allowlists |
+| Webhook pods have no env | Label `thalassa.cloud/wif.use=true`; binding Ready; SA has `wif.organisation-id` + `wif.service-account-id`; cert-manager Certificate Ready |
+| Pod cannot exchange token | Audience `https://api.thalassa.cloud`; subject is `system:serviceaccount:ns:name`; org + SA IDs match binding status |
+
+```bash
+kubectl get wib -A
+kubectl describe wib <name> -n <ns>
+kubectl get sa <name> -n <ns> -o yaml   # look for thalassa.cloud/wif.*
+kubectl get mutatingwebhookconfiguration | grep wif
+```
 
 ## Development
 
 ```bash
-make generate   # deepcopy + CRDs (controller-gen)
+make generate   # deepcopy + CRDs
 make test
 make lint
 make build
